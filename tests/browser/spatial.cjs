@@ -84,9 +84,10 @@ const assert = require("node:assert/strict");
       now += 50;
       cancelAnimationFrame(engine.raf);
     }
-    for (let i = 0; i < 22; i++) step([hand()]);
+    step([hand("neutral", 0.356, 0.5)]);
+    step([hand("pinch", 0.356, 0.5)]);
     const calibrated = engine.spatial.calibrated;
-    for (let i = 0; i < 20; i++) step([hand("open", 0.7, 0.45, 1.3)]);
+    for (let i = 0; i < 20; i++) step([hand("pinch", 0.256, 0.5)]);
     const position = engine.group.position.toArray(),
       scale = engine.group.scale.x,
       rotation = engine.group.rotation.y;
@@ -111,9 +112,22 @@ const assert = require("node:assert/strict");
     });
     step([]);
     const mirrored = engine.group.position.toArray();
+    const pose = engine.spatial.pose;
+    const tipX = 0.5 + (pose.x + (engine.spatial.handleUnit * 1.65) / (4 / 3));
+    step([hand("neutral", tipX, 0.5 - pose.y)]);
+    step([hand("pinch", tipX, 0.5 - pose.y)]);
+    const manual = engine.spatial.state,
+      spin = engine.group.rotation.y;
+    step([hand("pinch", tipX, 0.5 - pose.y)]);
+    const stopped = engine.group.rotation.y === spin;
+    step([]);
+    const resumed = engine.group.rotation.y > spin;
     engine.dispose();
     canvas.remove();
     return {
+      manual,
+      stopped,
+      resumed,
       calibrated,
       position,
       scale,
@@ -124,9 +138,12 @@ const assert = require("node:assert/strict");
       mirrored,
     };
   });
+  assert.equal(result.manual, "rotating");
+  assert.ok(result.stopped);
+  assert.ok(result.resumed);
   assert.equal(result.calibrated, true);
   assert.notEqual(result.position[0], 0);
-  assert.ok(result.position[2] > 0);
+  assert.equal(result.position[2], 0);
   assert.deepEqual(result.held.position, result.position);
   assert.equal(result.held.scale, result.scale);
   assert.ok(result.held.rotation > result.rotation);
@@ -152,7 +169,7 @@ const assert = require("node:assert/strict");
   await page.screenshot({ path: "/tmp/holomotion-spatial-mobile.png" });
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: mirror migration and persistence; calibrated depth; fist freezes position/size while rotation continues; no-snap regrab; tracking loss; mirrored world; mobile layout.",
+    "PASS: mirror migration and persistence; ring contact drag; fist freezes position/size while rotation continues; no-snap regrab; tracking loss; mirrored world; mobile layout.",
   );
   await browser.close();
 })().catch((e) => {

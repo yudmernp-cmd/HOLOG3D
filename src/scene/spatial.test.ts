@@ -2,150 +2,113 @@ import { describe, it, expect } from "vitest";
 import { PerspectiveCamera, Vector3 } from "three";
 import { SpatialController, spatialViewport, spatialPosition } from "./spatial";
 import type { Hand } from "../types";
-
 function hand(
-  gesture: Hand["gesture"] = "open",
-  x = 0.5,
-  y = 0.55,
-  size = 1,
-  id = "Left",
+  x: number,
+  y = 0,
+  gesture: Hand["gesture"] = "neutral",
+  id = "left",
 ): Hand {
-  const points = Array.from({ length: 21 }, () => ({ x, y, z: 0 }));
-  points[0] = { x, y: y + 0.1 * size, z: 0 };
-  points[9] = { x, y: y - 0.1 * size, z: 0 };
-  points[5] = { x: x - 0.06 * size, y: y - 0.07 * size, z: 0 };
-  points[17] = { x: x + 0.06 * size, y: y - 0.07 * size, z: 0 };
+  const p = { x: x + 0.5, y: 0.5 - y, z: 0 };
   return {
     id,
-    points,
+    points: Array.from({ length: 21 }, () => p),
+    center: p,
     gesture,
     pinchStart: false,
-    center: { x, y, z: 0 },
+    size: 0.1,
     angle: 0,
-    size: 0.2 * size,
     speed: 0,
   };
 }
 function rig() {
-  const control = new SpatialController();
-  let now = 0;
-  const step = (hands: Hand[]) => {
-    control.update(hands, now, 0.05, false, 4 / 3);
-    now += 50;
+  const c = new SpatialController();
+  let time = 0;
+  return {
+    c,
+    step: (hands: Hand[]) => {
+      c.update(hands, time, 0.05, false, 1);
+      time += 50;
+    },
   };
-  for (let i = 0; i < 22; i++) step([hand()]);
-  expect(control.calibrated).toBe(true);
-  expect(control.state).toBe("following");
-  return { control, step };
 }
-describe("intentional spatial manipulation", () => {
-  it("requires stable observations for calibration, not repeated rendering of one sample", () => {
-    const c = new SpatialController();
-    const sample = [hand()];
-    for (let t = 0; t < 1000; t += 16) c.update(sample, t, 0.016, false, 4 / 3);
-    expect(c.calibrated).toBe(false);
+describe("ring manipulation", () => {
+  it("stays centered for free hand movement and highlights proximity only", () => {
+    const { c, step } = rig();
+    step([hand(0.192)]);
+    expect(c.state).toBe("arming");
+    expect(c.pose.x).toBe(0);
+    step([hand(0.3)]);
+    expect(c.state).toBe("held");
     expect(c.pose.x).toBe(0);
   });
-  it("does not calibrate while the open palm is moving", () => {
-    const c = new SpatialController();
-    for (let t = 0; t < 1500; t += 50)
-      c.update(
-        [hand("open", t % 100 === 0 ? 0.3 : 0.7)],
-        t,
-        0.05,
-        false,
-        4 / 3,
-      );
-    expect(c.calibrated).toBe(false);
-  });
-  it("freezes position, depth, scale and roll immediately on a fist and on tracking loss", () => {
-    const { control: c, step } = rig();
-    for (let i = 0; i < 12; i++) step([hand("open", 0.7, 0.45, 1.2)]);
-    expect(c.pose.x).toBeGreaterThan(0.1);
-    expect(c.pose.depth).toBeLessThan(1);
-    const fixed = { ...c.pose };
-    for (let i = 0; i < 10; i++) step([hand("fist", 0.1, 0.9, 0.5)]);
-    expect(c.pose).toEqual(fixed);
-    expect(c.state).toBe("held");
-    for (let i = 0; i < 10; i++) step([]);
-    expect(c.pose).toEqual(fixed);
-  });
-  it("regrabs at an offset without teleporting and ignores brief accidental opening", () => {
-    const { control: c, step } = rig();
-    for (let i = 0; i < 10; i++) step([hand("open", 0.7)]);
-    step([hand("fist")]);
-    const fixed = { ...c.pose };
-    step([hand("open", 0.1)]);
-    step([hand("fist", 0.1)]);
-    expect(c.pose).toEqual(fixed);
-    for (let i = 0; i < 8; i++) step([hand("open", 0.1)]);
-    expect(c.pose).toEqual(fixed);
+  it("requires a new pinch on a ring, not an already pinching hand passing through", () => {
+    const { c, step } = rig();
+    step([hand(0.4, 0, "pinch")]);
+    step([hand(0.192, 0, "pinch")]);
+    expect(c.state).toBe("arming");
+    step([hand(0.192)]);
+    step([hand(0.192, 0, "pinch")]);
     expect(c.state).toBe("following");
-    for (let i = 0; i < 8; i++) step([hand("open", 0.2)]);
-    expect(c.pose.x).toBeGreaterThan(fixed.x + 0.03);
   });
-  it("suppresses sub-deadzone hand tremor", () => {
-    const { control: c, step } = rig();
-    for (let i = 0; i < 40; i++)
-      step([
-        hand(
-          "open",
-          0.5 + (i % 2 ? 0.002 : -0.002),
-          0.55,
-          1 + (i % 2 ? 0.01 : -0.01),
-        ),
-      ]);
-    expect(c.pose).toEqual({ x: 0, y: 0, depth: 1, scale: 1, roll: 0 });
+  it("drags at an offset without snapping and freezes on release", () => {
+    const { c, step } = rig();
+    step([hand(0.192, 0, "pinch")]);
+    expect(c.pose.x).toBe(0);
+    for (let i = 0; i < 10; i++) step([hand(0.292, 0, "pinch")]);
+    expect(c.pose.x).toBeGreaterThan(0.09);
+    const pose = { ...c.pose };
+    step([hand(0.4)]);
+    step([]);
+    expect(c.pose).toEqual(pose);
   });
-  it("changes virtual depth rather than geometry scale and rejects tilted-palm depth changes", () => {
-    const { control: c, step } = rig();
-    for (let i = 0; i < 30; i++) step([hand("open", 0.5, 0.55, 1.4)]);
-    expect(c.pose.depth).toBeLessThan(0.8);
-    expect(c.pose.scale).toBe(1);
-    step([hand("fist")]);
-    for (let i = 0; i < 8; i++) step([hand("open", 0.5, 0.55, 1.4)]);
-    const before = c.pose.depth;
-    for (let i = 0; i < 20; i++) {
-      const h = hand("open", 0.5, 0.55, 0.6);
-      h.points[5].z = 0.25;
-      step([h]);
-    }
-    expect(c.pose.depth).toBeCloseTo(before);
+  it("freezes immediately on fist", () => {
+    const { c, step } = rig();
+    step([hand(0.192, 0, "pinch")]);
+    step([hand(0.292, 0, "pinch")]);
+    const pose = { ...c.pose };
+    step([hand(-0.3, 0, "fist")]);
+    expect(c.pose).toEqual(pose);
   });
-  it("two deliberate open palms scale only; either fist freezes everything", () => {
-    const { control: c, step } = rig();
-    for (let i = 0; i < 6; i++)
-      step([hand("open", 0.3), hand("open", 0.7, 0.55, 1, "Right")]);
-    const fixed = { ...c.pose };
+  it("two pinches on the cyan ring scale independently of position and allow shrink", () => {
+    const { c, step } = rig();
+    step([hand(0.192, 0, "pinch"), hand(-0.192, 0, "pinch", "right")]);
     expect(c.state).toBe("scaling");
-    for (let i = 0; i < 15; i++)
-      step([hand("open", 0.15), hand("open", 0.85, 0.55, 1, "Right")]);
-    expect(c.pose.scale).toBeGreaterThan(1.3);
-    expect(c.pose.x).toBe(fixed.x);
-    expect(c.pose.depth).toBe(fixed.depth);
-    const scaled = { ...c.pose };
-    step([hand("open", 0.1), hand("fist", 0.9, 0.55, 1, "Right")]);
-    expect(c.state).toBe("held");
-    expect(c.pose).toEqual(scaled);
+    for (let i = 0; i < 12; i++)
+      step([hand(0.384, 0, "pinch"), hand(-0.384, 0, "pinch", "right")]);
+    expect(c.pose.scale).toBeGreaterThan(1.9);
+    expect(c.pose.x).toBe(0);
+    for (let i = 0; i < 12; i++)
+      step([hand(0.096, 0, "pinch"), hand(-0.096, 0, "pinch", "right")]);
+    expect(c.pose.scale).toBeLessThan(0.6);
   });
-  it("freezes if an open-hand observation becomes stale", () => {
-    const { control: c } = rig();
-    const hands = [hand("open", 0.7)];
-    c.update(hands, 1500, 0.05, false, 4 / 3);
-    c.update(hands, 1900, 0.05, false, 4 / 3);
-    const pose = { ...c.pose };
-    c.update(hands, 2200, 0.05, false, 4 / 3);
-    expect(c.state).toBe("held");
-    expect(c.pose).toEqual(pose);
+  it("requires the second pinch to contact the movement ring", () => {
+    const { c, step } = rig();
+    step([hand(0.192, 0, "pinch"), hand(-0.4, 0, "pinch", "right")]);
+    expect(c.state).toBe("following");
+    expect(c.pose.scale).toBe(1);
   });
-  it("supports recalibration without relocating a suspended object", () => {
-    const { control: c, step } = rig();
-    for (let i = 0; i < 10; i++) step([hand("open", 0.7)]);
-    const pose = { ...c.pose };
-    c.recalibrate();
-    for (let i = 0; i < 22; i++) step([hand("open", 0.2, 0.4, 0.8)]);
-    expect(c.calibrated).toBe(true);
-    expect(c.pose).toEqual(pose);
+  it("rotates on the outer ring and unwraps angles across the pi boundary", () => {
+    const { c, step } = rig();
+    step([hand(0.264, 0, "pinch")]);
+    expect(c.state).toBe("rotating");
+    for (let i = 1; i <= 40; i++) {
+      const a = i * 0.1;
+      step([hand(Math.cos(a) * 0.264, Math.sin(a) * 0.264, "pinch")]);
+    }
+    expect(c.pose.roll).toBeGreaterThan(3.5);
+    expect(c.pose.x).toBe(0);
+    expect(c.pose.scale).toBe(1);
+  });
+  it("stale observations and losing either grip stop manipulation", () => {
+    const { c, step } = rig();
+    const hands = [hand(0.192, 0, "pinch")];
+    step(hands);
+    c.update(hands, 500, 0.05, false, 1);
+    expect(c.state).toBe("held");
+    step([]);
+    step([hand(0.192, 0, "pinch"), hand(-0.192, 0, "pinch", "right")]);
+    step([hand(0.192, 0, "pinch")]);
+    expect(c.state).toBe("held");
   });
 });
 describe("camera-aligned perspective", () => {

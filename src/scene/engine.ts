@@ -31,6 +31,7 @@ export class Engine {
   strokeDirection = new T.Vector3();
   strokeAxis = new T.Vector3(0, 1, 0);
   spatial = new SpatialController();
+  spinSpeed = 0.22;
   spatialCue = new SpatialCue();
   view = spatialViewport(640, 480, 640, 480);
   private videoWidth = 640;
@@ -318,13 +319,17 @@ export class Engine {
         : { x: 0, y: 0, z: 0 };
     const smoothing = 1 - Math.exp(-dt * 8);
     if (mode !== "draw") {
-      this.spatial.update(hands, now, dt, s.mirror, data.width / data.height);
       if (!hands.length && this.pointer)
-        this.spatial.movePointer(
+        this.spatial.updatePointer(
           this.pointer.x / this.view.videoWidth,
           this.pointer.y / this.view.videoHeight,
+          this.pointer.down,
+          now,
           dt,
+          data.width / data.height,
         );
+      else
+        this.spatial.update(hands, now, dt, s.mirror, data.width / data.height);
       const pose = this.spatial.pose;
       const position = spatialPosition(pose, this.view);
       this.group.position.set(position.x, position.y, position.z);
@@ -334,11 +339,15 @@ export class Engine {
       this.group.rotation.z = pose.roll;
     } else this.spatial.hold();
     // Rotation belongs to the object, not to tracking availability or the fist.
-    this.group.rotation.y += dt * 0.22;
+    if (this.spatial.state === "rotating") this.spinSpeed = 0;
+    else this.spinSpeed += (0.22 - this.spinSpeed) * (1 - Math.exp(-dt * 4));
+    this.group.rotation.y += dt * this.spinSpeed;
     this.spatialCue.visible = mode !== "draw";
     this.spatialCue.position.copy(this.group.position);
-    this.spatialCue.scale.copy(this.group.scale);
-    this.spatialCue.update(this.spatial.state);
+    this.spatialCue.scale.setScalar(
+      this.view.videoHeight * this.spatial.handleUnit * this.spatial.pose.depth,
+    );
+    this.spatialCue.update(this.spatial, data.width / data.height);
     const feedback = this.spatial.state + this.spatial.calibrated;
     if (feedback !== this.lastFeedback) {
       this.lastFeedback = feedback;

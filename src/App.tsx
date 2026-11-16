@@ -16,7 +16,6 @@ import {
   HelpCircle,
   Power,
   ScanLine,
-  Crosshair,
 } from "lucide-react";
 import {
   defaults,
@@ -38,18 +37,18 @@ function restore(): Settings {
   }
 }
 const spatialLabels: Record<SpatialState, string> = {
-  held: "Posición fijada · giro activo",
-  calibrating: "Calibrando espacio",
-  arming: "Recuperando control",
-  following: "Objeto en tus manos",
-  scaling: "Ajustando escala",
+  held: "Suspendido · giro activo",
+  arming: "Aro al alcance",
+  following: "Moviendo objeto",
+  rotating: "Rotación manual",
+  scaling: "Ajustando tamaño",
 };
 const spatialHints: Record<SpatialState, string> = {
-  held: "Abre la mano para moverlo de nuevo.",
-  calibrating: "Palma de frente, abierta y quieta un instante.",
-  arming: "Mantén la palma abierta; retomará sin saltos.",
-  following: "Puño: fijar · Acerca la palma: traer el objeto.",
-  scaling: "Separa ambas palmas para ampliar. Puño: fijar.",
+  held: "Acerca el índice al aro cian y pellizca para agarrar.",
+  arming: "Pellizca aquí para agarrar. Cian: mover · Violeta: girar.",
+  following: "Mantén el pellizco para mover. Suelta para fijar.",
+  rotating: "Recorre el aro violeta. Suelta para recuperar el giro.",
+  scaling: "Separa o acerca las manos. Suelta para fijar el tamaño.",
 };
 const modes: { id: Mode; title: string; caption: string; icon: typeof Atom }[] =
   [
@@ -157,9 +156,6 @@ export default function App() {
       localStorage.setItem("holomotion", serializePreferences(settings));
     } catch {}
   }, [settings]);
-  useEffect(() => {
-    if (camera.active) engine.current?.recalibrate();
-  }, [camera.active]);
   async function fullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -189,7 +185,7 @@ export default function App() {
           <button onClick={() => setHelp(true)}>
             <HelpCircle size={16} /> Guía de gestos
           </button>
-          <span className="version">V 1.2</span>
+          <span className="version">V 1.3</span>
         </div>
       </header>
       <main>
@@ -438,10 +434,8 @@ export default function App() {
                 <strong>{spatialLabels[space.state]}</strong>
                 <small>
                   {demo
-                    ? "Mueve el ratón para explorar. Al salir, el objeto queda fijo."
-                    : !space.calibrated && space.state === "held"
-                      ? "Abre una palma de frente y quieta para calibrar."
-                      : spatialHints[space.state]}
+                    ? "Acerca el cursor al aro y mantén pulsado para agarrar."
+                    : spatialHints[space.state]}
                 </small>
               </div>
             )}
@@ -498,14 +492,6 @@ export default function App() {
                 </button>
               )}
               <button
-                title="Calibrar espacio"
-                disabled={!camera.active || settings.mode === "draw"}
-                onClick={() => engine.current?.recalibrate()}
-              >
-                <Crosshair size={16} />
-                <span>Calibrar</span>
-              </button>
-              <button
                 title="Invertir izquierda/derecha"
                 aria-label="Invertir izquierda/derecha"
                 aria-pressed={settings.mirror}
@@ -543,10 +529,10 @@ export default function App() {
           </div>
           <div className="gesture-cards">
             {[
-              ["✋", "Abre tu mano", "Mueve el holograma"],
+              ["☝", "Acerca el índice", "El aro se ilumina"],
               ["✊", "Cierra el puño", "Fija posición; sigue girando"],
-              ["🤏", "Haz un pellizco", "Dibuja en el aire"],
-              ["↔", "Dos palmas abiertas", "Ajusta el tamaño"],
+              ["🤏", "Haz un pellizco", "Agarrar o dibujar"],
+              ["↔", "Dos pellizcos en el aro", "Ajusta el tamaño"],
             ].map(([icon, title, desc]) => (
               <div key={title}>
                 <span>{icon}</span>
@@ -595,39 +581,32 @@ export default function App() {
             </p>
             <ol>
               <li>
-                Deja la cámara fija. Muestra una palma abierta, de frente y
-                quieta un instante para calibrar el espacio.
+                El objeto gira en el centro sin seguir automáticamente tus
+                manos. No necesitas calibrar.
               </li>
               <li>
-                Con la palma abierta, mueve el objeto. Acercarla a la cámara lo
-                trae hacia ti; alejarla lo lleva al fondo.
+                Acerca el índice al aro cian: se ilumina. Pellizca sobre él y
+                mueve la mano para trasladar el objeto.
               </li>
               <li>
-                Cierra el puño para fijar posición y tamaño. Sigue girando,
-                incluso si retiras la mano. Al abrirla, retomas el control sin
-                saltos.
+                Suelta o cierra el puño para dejarlo suspendido y girando.
               </li>
               <li>
-                Para cambiar el tamaño, mantén ambas palmas abiertas y sepáralas
-                o acércalas. Durante ese gesto solo cambia la escala.
+                Pellizca sobre el aro violeta y recórrelo para girar
+                manualmente. Al soltar, el giro automático vuelve suavemente.
               </li>
               <li>
-                En Dibujo, une pulgar e índice para trazar; suelta para separar
-                los trazos.
+                Agarra el aro cian con un pellizco de cada mano. Separa para
+                agrandar y acerca para reducir. Suelta para fijar.
+              </li>
+              <li>
+                En Dibujo, pellizca para trazar. En modo ratón, pulsa sobre un
+                aro y arrastra.
               </li>
             </ol>
             <p>
-              Por defecto, tu derecha corresponde a la derecha de la pantalla.
-              La vista de cámara sin invertir ve tus movimientos desde enfrente.
-              El botón Invertir izquierda/derecha cambia juntos el video y los
-              gráficos, y recuerda tu elección. Usa Calibrar si cambias de
-              posición o mueves la cámara.
-            </p>
-            <p>
-              Ratón: mueve para desplazar; mantén pulsado para dibujar.
-              Reiniciar borra los trazos. PNG exporta gráficos sin cámara. La
-              profundidad es estimada: no se mapea la habitación ni se oculta el
-              objeto detrás de manos o muebles.
+              El contacto se comprueba en la imagen, no en centímetros reales.
+              Puedes invertir izquierda/derecha con el botón de orientación.
             </p>
             <button className="primary" onClick={() => setHelp(false)}>
               Entendido, a crear <ChevronRight size={16} />

@@ -19,18 +19,18 @@ La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial 
 ## Uso
 
 - Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. La vista predeterminada sigue tus movimientos: tu derecha corresponde a la derecha de la pantalla (etiqueta **DERECHA → DERECHA**). Una cámara que te mira de frente capta ese movimiento hacia la izquierda del sensor, por lo que se aplica una única inversión horizontal al video y a las coordenadas. La antigua opción **IMAGEN DIRECTA** se migra automáticamente. **Invertir izquierda/derecha** cambia entre esa vista y **VISTA DE CÁMARA**, y recuerda la elección. Los objetos y los trazos cambian junto con el video.
-- **Partículas:** siete figuras interpoladas con giro continuo. Palma abierta mueve; puño fija posición y tamaño sin detener el giro. Al abrir de nuevo se retoma desde la ubicación actual, sin saltos.
-- **Hologramas:** selecciona una figura en el panel. La misma interacción controla posición y profundidad; dos palmas abiertas de forma sostenida permiten escalar sin trasladar simultáneamente. El pellizco se reserva al dibujo.
+- **Partículas:** siete figuras interpoladas con giro continuo. El aro cian se agarra con un pellizco para mover; el puño o soltar fija posición y tamaño sin detener el giro.
+- **Hologramas:** selecciona una figura en el panel. Los aros controlan traslado, rotación y escala con dos manos.
 - **Dibujo:** une índice y pulgar para trazar con el índice. Suelta para separar trazos. Configura color y grosor; reinicia para borrar. Se limita a 1800 segmentos para acotar memoria. PNG guarda gráficos transparentes, sin video.
 - **Energía:** vórtice, ondas y anillos responden a velocidad y dirección de la palma. No incluye un simulador físico.
-- **Ratón:** demostración explícita, sin detección simulada. Mueve para trasladar y mantén pulsado para dibujar.
+- **Ratón:** demostración explícita, sin detección simulada. Pulsa sobre el aro cian para trasladar o el violeta para rotar; en Dibujo mantén pulsado para trazar.
 - Usa los botones de vista para ocultar la cámara o controles, mostrar puntos, reiniciar, exportar y entrar en pantalla completa. La guía explica los gestos.
 
 ## Arquitectura y decisiones
 
 - `tracking/useCamera.ts`: permisos, stream, carga local de MediaPipe, detección VIDEO hasta 20 Hz, limpieza y errores. Inferencia en un Web Worker independiente, con GPU y alternativa CPU si la inicialización GPU falla. Solo se transfiere un fotograma pendiente; la frecuencia se adapta a la duración de inferencia, sin acumular imágenes.
 - `tracking/gestures.ts`: estados por mano, medidas normalizadas según palma y relación de aspecto, suavizado temporal, histéresis de pellizco, eventos de inicio y expiración de historial.
-- `scene/spatial.ts`: calibración con palma quieta, estados de control, zona muerta, apertura confirmada, estimación de profundidad, exclusión de gestos y proyección con lente virtual fija.
+- `scene/spatial.ts`: prueba de contacto sobre aros, agarre por inicio de pellizco, traslado con offset, escala de dos manos, rotación y liberación segura.
 - `scene/spatialCue.ts`: aro de referencia visual y señal de control activo o posición fijada.
 - `state/preferences.ts`: migración versionada de la orientación de cámara.
 - `scene/shapes.ts`: posiciones precomputadas para BufferGeometry.
@@ -91,19 +91,20 @@ El renderizador solicita gráficos de alto rendimiento, omite actualizaciones de
 
 Verificación de la corrección: comparación de ocho segundos en Chromium con cámara virtual de dos manos, misma ventana (1280×900) y gráficos SwiftShader. Antes: 11 FPS, p95 entre fotogramas 117 ms, 87 tareas largas y 7844 ms acumulados en ellas. Después: 32 FPS, p95 50 ms, una tarea larga de 50 ms. No son resultados de una RTX 3050 ni garantías para otros equipos.
 
-Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG; también orientación y persistencia, calibración, puño con giro continuo, recuperación sin saltos, pérdida de seguimiento, reflejo coherente de la escena y diseño móvil. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
+Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG; también orientación y persistencia, contacto con aros, rotación manual, puño con giro continuo, recuperación sin saltos, pérdida de seguimiento, reflejo coherente de la escena y diseño móvil. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
 
-### Manipulación espacial con cámara fija
+### Manipulación mediante aros · V 1.3
 
-1. Activa la cámara y mantén una palma abierta, de frente y quieta unos 0,7 segundos. La referencia calibra el tamaño visual del holograma según la palma.
-2. Una apertura sostenida unos 0,18 segundos toma el control. Mueve lateralmente para trasladar; acerca la palma para traer el objeto y aléjala para llevarlo al fondo. La perspectiva cambia por distancia virtual, no deformando la geometría.
-3. Cierra el puño: la posición, profundidad, tamaño e inclinación se fijan inmediatamente, pero el giro continúa. Retirar la mano tiene el mismo efecto. Al abrirla en otra ubicación se establece un nuevo punto de agarre, sin que el objeto salte.
-4. Dos palmas abiertas confirmadas ajustan solo la escala. Cualquier puño bloquea la manipulación. El aro cian indica control, ámbar posición fijada y violeta calibración o escala.
-5. Usa **Calibrar** después de mover la webcam o cambiar de postura. **Reiniciar** centra la escena y solicita una referencia nueva.
+El objeto aparece centrado y gira. No sigue una palma abierta ni requiere calibración.
 
-La profundidad se estima con el tamaño aparente de la palma, dentro de límites, con zona muerta y velocidad acotada. Una palma muy inclinada deja de actualizar profundidad para reducir cambios por escorzo. No se obtiene profundidad métrica, no se reconstruye la habitación y no hay oclusión real por manos o muebles. El aro es una referencia holográfica flotante, no un suelo detectado. La lente virtual asume 50° verticales: distintas webcams pueden requerir calibración física adicional para una coincidencia óptica exacta.
+- Acerca el índice a un aro: se resalta y aparecen puntos de contacto.
+- Pellizca sobre el aro cian para agarrarlo. Mantén el pellizco y arrastra para trasladar sin saltos.
+- Pellizca sobre el aro violeta y recórrelo para rotar. El giro automático se pausa durante la rotación manual y se recupera suavemente al soltar.
+- Agarra el aro cian con ambas manos: separarlas aumenta el tamaño y acercarlas lo reduce. Se conserva la posición y se admite un rango de 0,35× a 3×. Los controles mantienen un tamaño accesible al ampliar mucho el objeto.
+- Soltar, cerrar el puño o perder una mano activa fija el objeto. Para volver a agarrar hay que iniciar un nuevo pellizco sobre el aro; no basta pasar por él pellizcando desde fuera.
+- El modo ratón permite probar traslado y rotación pulsando sobre los aros. Dibujo conserva el pellizco para trazar.
 
-Prueba manual pendiente en webcam física: calibra, desplaza el objeto, cierra el puño mientras alejas la mano, verifica que permanece girando en su lugar y ábrela en otra posición para retomar sin salto. Comprueba acercamiento/alejamiento y escala de dos manos. Las secuencias automatizadas verifican la lógica con landmarks sintéticos y el renderizador, pero no sustituyen esta prueba de ergonomía y reconocimiento dinámico.
+El contacto es una coincidencia de coordenadas en la imagen, no una medición física de distancia. La perspectiva virtual se conserva y la profundidad permanece estable durante la manipulación. No hay oclusión física ni reconstrucción de la habitación.
 
 ### Orientación V 1.2
 

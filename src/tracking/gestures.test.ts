@@ -35,6 +35,15 @@ describe("real gesture geometry", () => {
     expect(mirror.x).toBeCloseTo(-direct.x);
     expect(mirror.y).toBe(direct.y);
   });
+  it("recognizes a precision pinch with the other fingers folded", () => {
+    const p = hand();
+    for (const tip of [8, 12, 16, 20]) p[tip] = { x: 0.5, y: 0.7, z: 0 };
+    p[8] = { x: 0.5, y: 0.53, z: 0 };
+    p[4] = { x: 0.51, y: 0.53, z: 0 };
+    expect(new GestureRecognizer().update(p, "left", 100).gesture).toBe(
+      "pinch",
+    );
+  });
   it("pinch emits an edge once and uses release hysteresis", () => {
     const r = new GestureRecognizer();
     const p = hand();
