@@ -67,3 +67,15 @@ El bloqueo de descarga anterior quedó resuelto con la configuración publicada.
 `npm run build` comprueba primero que el modelo y WASM estén presentes; falla expresamente mientras falten. `npm run build:ui` permite comprobar solo el código y no constituye una distribución completa. `npm run setup:assets` reintenta la descarga oficial, valida la estructura del paquete y guarda el modelo mediante un reemplazo atómico. Los recursos se sirven localmente al ejecutar la aplicación.
 
 No se implementa grabación de video. La exportación PNG incluye los gráficos, sin la cámara. Vite avisa del tamaño del paquete principal de Three.js y MediaPipe; es un aviso de optimización, no un error de compilación.
+
+## Web pública con GitHub Pages
+
+El workflow `.github/workflows/pages.yml` instala, prueba, compila y despliega `dist/` cuando se actualiza `main`. Incluye el modelo y WASM, por lo que el navegador no necesita descargarlos de terceros.
+
+Activación inicial por el propietario del repositorio:
+
+1. Abre **Settings → Pages → Build and deployment → Source** y selecciona **GitHub Actions**.
+2. En **Actions → Deploy HoloMotion to GitHub Pages**, ejecuta **Run workflow** sobre `main` (o vuelve a ejecutar el despliegue si falló antes de activar Pages).
+3. Al terminar correctamente, la dirección prevista es `https://yudmernp-cmd.github.io/HOLOG3D/`. El enlace publicado también aparece en el entorno `github-pages` del workflow.
+
+La cámara necesita HTTPS y permiso del navegador. Subir el workflow no confirma que Pages esté activado ni que el despliegue haya terminado.
