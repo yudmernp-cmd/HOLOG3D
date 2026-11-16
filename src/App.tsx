@@ -45,7 +45,7 @@ const spatialLabels: Record<SpatialState, string> = {
 };
 const spatialHints: Record<SpatialState, string> = {
   held: "Acerca el índice al aro cian y pellizca para agarrar.",
-  arming: "Pellizca aquí para agarrar. Cian: mover · Violeta: girar.",
+  arming: "Junta índice y pulgar ahora. Al agarrar verás «Moviendo objeto».",
   following: "Mantén el pellizco para mover. Suelta para fijar.",
   rotating: "Recorre el aro violeta. Suelta para recuperar el giro.",
   scaling: "Separa o acerca las manos. Suelta para fijar el tamaño.",
@@ -185,7 +185,7 @@ export default function App() {
           <button onClick={() => setHelp(true)}>
             <HelpCircle size={16} /> Guía de gestos
           </button>
-          <span className="version">V 1.3</span>
+          <span className="version">V 1.3.1</span>
         </div>
       </header>
       <main>

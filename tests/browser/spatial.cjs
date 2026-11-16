@@ -85,7 +85,7 @@ const assert = require("node:assert/strict");
       cancelAnimationFrame(engine.raf);
     }
     step([hand("neutral", 0.356, 0.5)]);
-    step([hand("pinch", 0.356, 0.5)]);
+    step([hand("pinch", 0.39, 0.5)]);
     const calibrated = engine.spatial.calibrated;
     for (let i = 0; i < 20; i++) step([hand("pinch", 0.256, 0.5)]);
     const position = engine.group.position.toArray(),

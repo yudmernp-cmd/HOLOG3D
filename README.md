@@ -111,3 +111,7 @@ El contacto es una coincidencia de coordenadas en la imagen, no una medición f�
 La preferencia versionada guarda `cameraOrientation: "user" | "camera"`, en lugar del ambiguo booleano antiguo. Las sesiones V 1.1 con **IMAGEN DIRECTA** se migran a la vista que sigue al usuario; color y calidad se conservan. Las elecciones realizadas con el nuevo botón persisten. MediaPipe sigue recibiendo fotogramas sin modificar; `tracking/orientation.ts` centraliza la inversión aplicada al video, puntos y control espacial para evitar una doble inversión.
 
 La prueba `tests/browser/orientation.cjs` usa un video sintético asimétrico, captura sus píxeles realmente mostrados y compara su ubicación con la proyección de los landmarks. Verifica dirección derecha/izquierda, alineación, migración, cambio de orientación y persistencia. No simula una detección de manos ni sustituye la comprobación con una webcam física.
+
+### Agarre tolerante · V 1.3.1
+
+Coloca el índice sobre el aro cian, junta índice y pulgar y desplaza la mano manteniendo el pellizco. El estado debe cambiar a **Moviendo objeto**. Se recuerda el contacto durante 450 ms para permitir que el dedo se desplace un poco al cerrar el pellizco; los agarres lejos del aro o con un contacto antiguo siguen rechazándose. Una clasificación neutral de hasta 150 ms congela brevemente el objeto sin soltarlo. Abrir la mano, cerrar el puño o perder el seguimiento lo libera.

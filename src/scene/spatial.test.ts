@@ -32,6 +32,38 @@ function rig() {
   };
 }
 describe("ring manipulation", () => {
+  it("accepts a pinch that pulls the fingertip slightly away from a recently touched ring", () => {
+    const { c, step } = rig();
+    step([hand(0.192)]);
+    step([hand(0.145, 0, "pinch")]);
+    expect(c.state).toBe("following");
+    for (let i = 0; i < 10; i++) step([hand(0.245, 0, "pinch")]);
+    expect(c.pose.x).toBeGreaterThan(0.09);
+  });
+  it("rejects distant and expired contact history", () => {
+    const { c, step } = rig();
+    step([hand(0.192)]);
+    step([hand(0.4, 0, "pinch")]);
+    expect(c.state).not.toBe("following");
+    step([]);
+    step([hand(0.192)]);
+    for (let i = 0; i < 12; i++) step([hand(0)]);
+    step([hand(0.145, 0, "pinch")]);
+    expect(c.state).not.toBe("following");
+  });
+  it("freezes briefly on uncertain classification and resumes without a jump", () => {
+    const { c, step } = rig();
+    step([hand(0.192, 0, "pinch")]);
+    step([hand(0.25, 0, "pinch")]);
+    const pose = { ...c.pose };
+    step([hand(0.3)]);
+    expect(c.pose).toEqual(pose);
+    step([hand(0.3, 0, "pinch")]);
+    expect(c.pose.x).toBeCloseTo(pose.x, 12);
+    for (let i = 0; i < 8; i++) step([hand(0.35, 0, "pinch")]);
+    expect(c.pose.x).toBeGreaterThan(pose.x);
+  });
+
   it("stays centered for free hand movement and highlights proximity only", () => {
     const { c, step } = rig();
     step([hand(0.192)]);
@@ -57,7 +89,7 @@ describe("ring manipulation", () => {
     for (let i = 0; i < 10; i++) step([hand(0.292, 0, "pinch")]);
     expect(c.pose.x).toBeGreaterThan(0.09);
     const pose = { ...c.pose };
-    step([hand(0.4)]);
+    step([hand(0.4, 0, "open")]);
     step([]);
     expect(c.pose).toEqual(pose);
   });

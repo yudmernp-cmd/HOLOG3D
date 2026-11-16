@@ -33,6 +33,11 @@ export class SpatialController {
   private grips = new Map<string, Grip>();
   private previousPinches = new Set<string>();
   private previousHands?: Hand[];
+  private contacts = new Map<
+    string,
+    { kind: "move" | "rotate"; point: Cursor; time: number }
+  >();
+  private uncertainSince?: number;
   private lastSample = 0;
   private anchor = initial();
   private target = initial();
@@ -40,6 +45,8 @@ export class SpatialController {
   private angle = 0;
   hold() {
     this.grips.clear();
+    this.contacts.clear();
+    this.uncertainSince = undefined;
     this.target = { ...this.pose };
     this.hover = null;
     this.cursors = [];
@@ -118,23 +125,51 @@ export class SpatialController {
     const pinches = new Set(
       hands.filter((h) => h.gesture === "pinch").map((h) => h.id),
     );
-    const released = [...this.grips.keys()].some((id) => !pinches.has(id));
+    const missing = [...this.grips.keys()].some((id) => !points.has(id));
+    const released = [...this.grips.keys()].some(
+      (id) => hands.find((h) => h.id === id)?.gesture === "open",
+    );
     if (
       !hands.length ||
       hands.some((h) => h.gesture === "fist") ||
       now - this.lastSample > 350 ||
+      missing ||
       released
     ) {
       this.hold();
       this.previousPinches = pinches;
       return;
     }
+    const uncertain = [...this.grips.keys()].some((id) => !pinches.has(id));
+    if (uncertain) {
+      this.uncertainSince ??= now;
+      if (now - this.uncertainSince > 150) {
+        this.hold();
+        this.previousPinches = pinches;
+      }
+      return; // Brief ambiguity freezes the object instead of moving on uncertain input.
+    }
+    let changed = this.uncertainSince !== undefined;
+    this.uncertainSince = undefined;
     this.hover = null;
     this.cursors = [...points.values()];
-    let changed = false;
     for (const h of hands) {
       const point = points.get(h.id)!;
-      const hit = this.hit(point, aspect);
+      let hit = this.hit(point, aspect);
+      if (fresh && hit && !pinches.has(h.id))
+        this.contacts.set(h.id, { kind: hit, point: { ...point }, time: now });
+      const contact = this.contacts.get(h.id);
+      if (
+        !hit &&
+        pinches.has(h.id) &&
+        contact &&
+        now - contact.time < 450 &&
+        Math.hypot(
+          (point.x - contact.point.x) * aspect,
+          point.y - contact.point.y,
+        ) < 0.12
+      )
+        hit = contact.kind;
       if (hit) this.hover = hit;
       if (
         fresh &&
@@ -149,6 +184,7 @@ export class SpatialController {
           (current.kind === "move" && hit === "move" && this.grips.size === 1)
         ) {
           this.grips.set(h.id, { point, kind: hit });
+          this.contacts.delete(h.id);
           changed = true;
         }
       }
