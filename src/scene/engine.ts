@@ -3,6 +3,13 @@ import type { Settings, Tracking } from "../types";
 import { counts } from "../types";
 import { project } from "../tracking/gestures";
 import { shapePositions } from "./shapes";
+import {
+  SpatialController,
+  spatialViewport,
+  spatialPosition,
+  type SpatialState,
+} from "./spatial";
+import { SpatialCue } from "./spatialCue";
 export class Engine {
   renderer: T.WebGLRenderer;
   scene = new T.Scene();
@@ -17,13 +24,18 @@ export class Engine {
   rings: T.Mesh[] = [];
   strokes = new T.InstancedMesh(
     new T.CylinderGeometry(1, 1, 1, 6),
-    new T.MeshBasicMaterial(),
+    new T.MeshBasicMaterial({ fog: false }),
     1800,
   );
   strokeTransform = new T.Object3D();
   strokeDirection = new T.Vector3();
   strokeAxis = new T.Vector3(0, 1, 0);
-  scaleTarget = new T.Vector3();
+  spatial = new SpatialController();
+  spatialCue = new SpatialCue();
+  view = spatialViewport(640, 480, 640, 480);
+  private videoWidth = 640;
+  private videoHeight = 480;
+  private lastFeedback = "";
   color = new T.Color();
   strokeGroup = new T.Group();
   markers: T.Points;
@@ -41,8 +53,6 @@ export class Engine {
   lastShape = "";
   lastPoint: T.Vector3 | null = null;
   drawingHand: string | null = null;
-  wasPinch = false;
-  lastPinchEvent = 0;
   drawCount = 0;
   pointer: { x: number; y: number; down: boolean } | null = null;
   width = 1;
@@ -60,6 +70,7 @@ export class Engine {
     settings: Settings,
     public tracking: () => Tracking,
     onStats: (fps: number, quality: number) => void,
+    public onSpatial?: (state: SpatialState, calibrated: boolean) => void,
   ) {
     this.settings = settings;
     this.strokes.count = 0;
@@ -88,18 +99,22 @@ export class Engine {
         size: 2.2,
         transparent: true,
         opacity: 0.85,
-        blending: T.AdditiveBlending,
+        blending: T.NormalBlending,
         depthWrite: false,
       }),
     );
+    this.points.frustumCulled = false;
     this.group.add(this.points);
     this.hologram = new T.Mesh(
       new T.IcosahedronGeometry(1, 1),
-      new T.MeshBasicMaterial({
+      new T.MeshPhongMaterial({
         color: settings.color,
+        emissive: settings.color,
+        emissiveIntensity: 0.12,
+        shininess: 90,
         transparent: true,
-        opacity: 0.09,
-        side: T.DoubleSide,
+        opacity: 0.23,
+        side: T.FrontSide,
         depthWrite: false,
       }),
     );
@@ -131,7 +146,12 @@ export class Engine {
     mg.setAttribute("position", new T.BufferAttribute(this.markerData, 3));
     this.markers = new T.Points(
       mg,
-      new T.PointsMaterial({ color: 0x67e8f9, size: 5, depthTest: false }),
+      new T.PointsMaterial({
+        color: 0x67e8f9,
+        size: 5,
+        depthTest: false,
+        fog: false,
+      }),
     );
     this.scene.add(this.markers);
     this.lineGeometry.setAttribute(
@@ -145,6 +165,7 @@ export class Engine {
         transparent: true,
         opacity: 0.4,
         depthTest: false,
+        fog: false,
       }),
     );
     this.scene.add(this.skeleton);
@@ -161,11 +182,16 @@ export class Engine {
         opacity: 0.8,
         blending: T.AdditiveBlending,
         depthTest: false,
+        fog: false,
       }),
     );
     this.scene.add(this.beam);
-    this.scene.add(this.group, this.strokeGroup);
-    this.camera.position.z = 1000;
+    this.scene.add(this.group, this.strokeGroup, this.spatialCue);
+    this.scene.add(new T.AmbientLight(0xb9e9ff, 0.8));
+    const light = new T.DirectionalLight(0xffffff, 2.2);
+    light.position.set(-1, 2, 3);
+    this.scene.add(light);
+    this.markers.renderOrder = this.skeleton.renderOrder = 10;
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas);
     this.resize();
@@ -175,11 +201,37 @@ export class Engine {
     this.width = this.canvas.clientWidth;
     this.height = this.canvas.clientHeight;
     this.renderer.setSize(this.width, this.height, false);
-    this.camera.aspect = this.width / this.height;
-    this.camera.fov = (2 * Math.atan(this.height / 2000) * 180) / Math.PI;
+    this.syncProjection();
+  }
+  private syncProjection() {
+    this.view = spatialViewport(
+      this.videoWidth,
+      this.videoHeight,
+      Math.max(1, this.width),
+      Math.max(1, this.height),
+    );
+    this.camera.position.z = this.view.focal;
+    this.camera.aspect = Math.max(1, this.width) / Math.max(1, this.height);
+    this.camera.fov = this.view.fov;
     this.camera.updateProjectionMatrix();
+    this.scene.fog = new T.Fog(
+      0x071524,
+      this.view.focal * 0.5,
+      this.view.focal * 2.7,
+    );
+  }
+  recalibrate() {
+    this.spatial.recalibrate();
   }
   update(s: Settings) {
+    if (s.mirror !== this.settings.mirror) {
+      this.spatial.pose.x *= -1;
+      this.spatial.pose.roll *= -1;
+      this.spatial.hold();
+      this.strokeGroup.scale.x *= -1;
+      this.lastPoint = null;
+    }
+    if (s.mode !== this.settings.mode) this.spatial.hold();
     if (s.quality !== this.settings.quality) {
       this.autoLevel = s.quality;
       this.slow = 0;
@@ -195,7 +247,7 @@ export class Engine {
     this.clear();
     this.group.position.set(0, 0, 0);
     this.group.rotation.set(0, 0, 0);
-    this.group.scale.setScalar(150);
+    this.spatial.reset();
     this.autoLevel = this.settings.quality;
   }
   export() {
@@ -212,6 +264,12 @@ export class Engine {
     this.last = now;
     const s = this.settings;
     const data = this.tracking();
+    if (data.width !== this.videoWidth || data.height !== this.videoHeight) {
+      this.videoWidth = data.width;
+      this.videoHeight = data.height;
+      this.syncProjection();
+      this.spatial.hold();
+    }
     const hands = data.hands;
     const hand = hands[0];
     const mode = s.mode;
@@ -235,7 +293,8 @@ export class Engine {
     }
     const color = this.color.set(s.color);
     (this.points.material as T.PointsMaterial).color.copy(color);
-    (this.hologram.material as T.MeshBasicMaterial).color.copy(color);
+    (this.hologram.material as T.MeshPhongMaterial).color.copy(color);
+    (this.hologram.material as T.MeshPhongMaterial).emissive.copy(color);
     (this.wire.material as T.LineBasicMaterial).color.copy(color);
     const count = Math.max(
       100,
@@ -258,29 +317,33 @@ export class Engine {
         ? { x: this.pointer.x, y: this.pointer.y, z: 0 }
         : { x: 0, y: 0, z: 0 };
     const smoothing = 1 - Math.exp(-dt * 8);
-    this.group.position.x += (p.x - this.group.position.x) * smoothing;
-    this.group.position.y += (p.y - this.group.position.y) * smoothing;
-    let scale = Math.min(this.width, this.height) * 0.25;
-    if (hands.length === 2)
-      scale *= T.MathUtils.clamp(
-        Math.hypot(
-          hands[0].center.x - hands[1].center.x,
-          hands[0].center.y - hands[1].center.y,
-        ) * 3,
-        0.4,
-        2.5,
+    if (mode !== "draw") {
+      this.spatial.update(hands, now, dt, s.mirror, data.width / data.height);
+      if (!hands.length && this.pointer)
+        this.spatial.movePointer(
+          this.pointer.x / this.view.videoWidth,
+          this.pointer.y / this.view.videoHeight,
+          dt,
+        );
+      const pose = this.spatial.pose;
+      const position = spatialPosition(pose, this.view);
+      this.group.position.set(position.x, position.y, position.z);
+      this.group.scale.setScalar(
+        this.view.videoHeight * this.spatial.radius * pose.scale,
       );
-    if (hand?.gesture === "open") scale *= 1.3;
-    if (hand?.gesture === "fist") scale *= 0.45;
-    this.group.scale.lerp(this.scaleTarget.setScalar(scale), smoothing);
-    if (hand) {
-      const angle = (s.mirror ? -1 : 1) * hand.angle;
-      const delta = Math.atan2(
-        Math.sin(angle - this.group.rotation.z),
-        Math.cos(angle - this.group.rotation.z),
-      );
-      this.group.rotation.z += delta * smoothing;
-    } else this.group.rotation.y += dt * 0.12;
+      this.group.rotation.z = pose.roll;
+    } else this.spatial.hold();
+    // Rotation belongs to the object, not to tracking availability or the fist.
+    this.group.rotation.y += dt * 0.22;
+    this.spatialCue.visible = mode !== "draw";
+    this.spatialCue.position.copy(this.group.position);
+    this.spatialCue.scale.copy(this.group.scale);
+    this.spatialCue.update(this.spatial.state);
+    const feedback = this.spatial.state + this.spatial.calibrated;
+    if (feedback !== this.lastFeedback) {
+      this.lastFeedback = feedback;
+      this.onSpatial?.(this.spatial.state, this.spatial.calibrated);
+    }
     const energy = mode === "energy";
     if (hand?.gesture === "open" && this.previousGesture === "fist")
       this.burst = 1;
@@ -353,7 +416,7 @@ export class Engine {
       const projected = h.points.map((q) =>
         project(q, data.width, data.height, this.width, this.height, s.mirror),
       );
-      for (const q of projected) this.markerData.set([q.x, q.y, 5], n++ * 3);
+      for (const q of projected) this.markerData.set([q.x, q.y, 0], n++ * 3);
       for (const chain of [
         [0, 1, 2, 3, 4],
         [0, 5, 6, 7, 8],
@@ -365,7 +428,7 @@ export class Engine {
         for (let i = 1; i < chain.length; i++)
           for (const ix of [chain[i - 1], chain[i]]) {
             const q = projected[ix];
-            if (l < 100) this.lineData.set([q.x, q.y, 4], l++ * 3);
+            if (l < 100) this.lineData.set([q.x, q.y, 0], l++ * 3);
           }
     }
     this.markers.geometry.setDrawRange(0, n);
@@ -374,14 +437,6 @@ export class Engine {
     this.lineGeometry.attributes.position.needsUpdate = true;
     this.markers.visible = this.skeleton.visible = s.landmarks;
     const pinching = hand?.gesture === "pinch" || !!this.pointer?.down;
-    if (
-      mode === "hologram" &&
-      hand?.pinchStart &&
-      now - this.lastPinchEvent > 700
-    ) {
-      this.lastPinchEvent = now;
-      this.hologram.rotation.y += Math.PI / 4;
-    }
     if (mode === "draw" && pinching) {
       const drawingHand = hand?.id ?? "mouse";
       if (drawingHand !== this.drawingHand) this.lastPoint = null;
@@ -396,7 +451,7 @@ export class Engine {
             s.mirror,
           )
         : p;
-      const point = new T.Vector3(q.x, q.y, 0);
+      const point = new T.Vector3(q.x / this.strokeGroup.scale.x, q.y, 0);
       if (
         this.lastPoint &&
         point.distanceTo(this.lastPoint) > 2 &&

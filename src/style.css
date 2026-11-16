@@ -758,3 +758,84 @@ footer b {
     gap: 20px;
   }
 }
+
+.orientation-chip {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 4px 6px;
+  border: 1px solid #54748d55;
+  border-radius: 4px;
+  background: #07111fbb;
+  font-size: 7px;
+  color: #b4d6e9;
+}
+.spatial-hud {
+  position: absolute;
+  top: 64px;
+  left: 22px;
+  max-width: min(340px, calc(100% - 44px));
+  border-left: 2px solid #fbbf24;
+  padding: 10px 14px;
+  border-radius: 0 6px 6px 0;
+  background: #07111fd9;
+  pointer-events: none;
+}
+.spatial-hud strong {
+  display: block;
+  font-size: 12px;
+  color: #fde68a;
+  font-weight: 500;
+}
+.spatial-hud small {
+  display: block;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #b8cbdc;
+  margin-top: 4px;
+}
+.spatial-hud[data-state="following"] {
+  border-color: #00d9ff;
+}
+.spatial-hud[data-state="following"] strong {
+  color: #67e8f9;
+}
+.spatial-hud[data-state="calibrating"],
+.spatial-hud[data-state="scaling"],
+.spatial-hud[data-state="arming"] {
+  border-color: #a78bfa;
+}
+.spatial-hud[data-state="calibrating"] strong,
+.spatial-hud[data-state="scaling"] strong,
+.spatial-hud[data-state="arming"] strong {
+  color: #c4b5fd;
+}
+.tools button span {
+  margin-left: 5px;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.35;
+  filter: none;
+}
+@media (max-width: 720px) {
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .tools {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .spatial-hud {
+    top: 60px;
+    left: 12px;
+    max-width: calc(100% - 24px);
+  }
+  .scene-tag {
+    font-size: 7px;
+    letter-spacing: 0.7px;
+  }
+  .orientation-chip {
+    margin-left: 6px;
+    font-size: 6px;
+  }
+}

@@ -41,7 +41,7 @@ export const defaults: Settings = {
   intensity: 75,
   sensitivity: 1,
   thickness: 3,
-  mirror: true,
+  mirror: false,
   cameraVisible: true,
   landmarks: true,
 };

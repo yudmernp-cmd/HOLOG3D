@@ -18,9 +18,9 @@ La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial 
 
 ## Uso
 
-- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. El video se muestra en espejo por defecto; el botón espejo también transforma los gráficos.
-- **Partículas:** siete figuras interpoladas. Palma abierta expande, puño concentra, palma desplaza, muñeca rota y distancia entre dos manos escala.
-- **Hologramas:** selecciona una figura en el panel; los mismos movimientos la manipulan. Cada inicio de pellizco produce un giro discreto de 45° (con enfriamiento).
+- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. El video se muestra sin reflejo por defecto. Las preferencias de la versión anterior se migran a imagen directa; un cambio de espejo posterior se recuerda. El botón espejo transforma juntos video, coordenadas, objetos y trazos.
+- **Partículas:** siete figuras interpoladas con giro continuo. Palma abierta mueve; puño fija posición y tamaño sin detener el giro. Al abrir de nuevo se retoma desde la ubicación actual, sin saltos.
+- **Hologramas:** selecciona una figura en el panel. La misma interacción controla posición y profundidad; dos palmas abiertas de forma sostenida permiten escalar sin trasladar simultáneamente. El pellizco se reserva al dibujo.
 - **Dibujo:** une índice y pulgar para trazar con el índice. Suelta para separar trazos. Configura color y grosor; reinicia para borrar. Se limita a 1800 segmentos para acotar memoria. PNG guarda gráficos transparentes, sin video.
 - **Energía:** vórtice, ondas y anillos responden a velocidad y dirección de la palma. No incluye un simulador físico.
 - **Ratón:** demostración explícita, sin detección simulada. Mueve para trasladar y mantén pulsado para dibujar.
@@ -30,6 +30,9 @@ La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial 
 
 - `tracking/useCamera.ts`: permisos, stream, carga local de MediaPipe, detección VIDEO hasta 20 Hz, limpieza y errores. Inferencia en un Web Worker independiente, con GPU y alternativa CPU si la inicialización GPU falla. Solo se transfiere un fotograma pendiente; la frecuencia se adapta a la duración de inferencia, sin acumular imágenes.
 - `tracking/gestures.ts`: estados por mano, medidas normalizadas según palma y relación de aspecto, suavizado temporal, histéresis de pellizco, eventos de inicio y expiración de historial.
+- `scene/spatial.ts`: calibración con palma quieta, estados de control, zona muerta, apertura confirmada, estimación de profundidad, exclusión de gestos y proyección con lente virtual fija.
+- `scene/spatialCue.ts`: aro de referencia visual y señal de control activo o posición fijada.
+- `state/preferences.ts`: migración versionada de la orientación de cámara.
 - `scene/shapes.ts`: posiciones precomputadas para BufferGeometry.
 - `scene/engine.ts`: renderizador transparente, cámara virtual, partículas, objetos, trazos y energía; un único requestAnimationFrame. Materiales y geometrías persistentes; los trazos se agrupan en un InstancedMesh de hasta 1800 segmentos, con una sola llamada de dibujo.
 - `App.tsx`: controles y estado. Preferencias de color, calidad y espejo restauradas desde localStorage.
@@ -57,7 +60,7 @@ Verificado el 16 de noviembre de 2026:
 
 - `npm ci --cache /tmp/holomotion-npm`: instalación reproducible y descarga del modelo oficial completadas.
 - `npm run build`: recursos de visión presentes, TypeScript y compilación de producción correctos.
-- `npm test`: cinco pruebas aprobadas de gestos, proyección y figuras.
+- `npm test`: 21 pruebas aprobadas de gestos, proyección, migración de preferencias y control espacial.
 - Chromium con WebGL software: cuatro modos, ratón, guía, exportación PNG, controles inmersivos y vista móvil sin desbordamiento; sin excepciones de JavaScript.
 - MediaPipe ejecutado realmente en Chromium sobre una cámara de prueba alimentada con la imagen oficial `https://storage.googleapis.com/mediapipe-assets/right_hands.jpg`: **dos manos detectadas**, sin sustituir ni simular los resultados del detector.
 - Cambio entre los cuatro modos con seguimiento activo, desactivación/reactivación del detector y comprobación de que los tracks de cámara terminan correctamente.
@@ -88,4 +91,16 @@ El renderizador solicita gráficos de alto rendimiento, omite actualizaciones de
 
 Verificación de la corrección: comparación de ocho segundos en Chromium con cámara virtual de dos manos, misma ventana (1280×900) y gráficos SwiftShader. Antes: 11 FPS, p95 entre fotogramas 117 ms, 87 tareas largas y 7844 ms acumulados en ellas. Después: 32 FPS, p95 50 ms, una tarea larga de 50 ms. No son resultados de una RTX 3050 ni garantías para otros equipos.
 
-Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
+Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG; también orientación y persistencia, calibración, puño con giro continuo, recuperación sin saltos, pérdida de seguimiento, reflejo coherente de la escena y diseño móvil. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
+
+### Manipulación espacial con cámara fija
+
+1. Activa la cámara y mantén una palma abierta, de frente y quieta unos 0,7 segundos. La referencia calibra el tamaño visual del holograma según la palma.
+2. Una apertura sostenida unos 0,18 segundos toma el control. Mueve lateralmente para trasladar; acerca la palma para traer el objeto y aléjala para llevarlo al fondo. La perspectiva cambia por distancia virtual, no deformando la geometría.
+3. Cierra el puño: la posición, profundidad, tamaño e inclinación se fijan inmediatamente, pero el giro continúa. Retirar la mano tiene el mismo efecto. Al abrirla en otra ubicación se establece un nuevo punto de agarre, sin que el objeto salte.
+4. Dos palmas abiertas confirmadas ajustan solo la escala. Cualquier puño bloquea la manipulación. El aro cian indica control, ámbar posición fijada y violeta calibración o escala.
+5. Usa **Calibrar** después de mover la webcam o cambiar de postura. **Reiniciar** centra la escena y solicita una referencia nueva.
+
+La profundidad se estima con el tamaño aparente de la palma, dentro de límites, con zona muerta y velocidad acotada. Una palma muy inclinada deja de actualizar profundidad para reducir cambios por escorzo. No se obtiene profundidad métrica, no se reconstruye la habitación y no hay oclusión real por manos o muebles. El aro es una referencia holográfica flotante, no un suelo detectado. La lente virtual asume 50° verticales: distintas webcams pueden requerir calibración física adicional para una coincidencia óptica exacta.
+
+Prueba manual pendiente en webcam física: calibra, desplaza el objeto, cierra el puño mientras alejas la mano, verifica que permanece girando en su lugar y ábrela en otra posición para retomar sin salto. Comprueba acercamiento/alejamiento y escala de dos manos. Las secuencias automatizadas verifican la lógica con landmarks sintéticos y el renderizador, pero no sustituyen esta prueba de ergonomía y reconocimiento dinámico.

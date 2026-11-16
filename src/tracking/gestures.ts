@@ -28,13 +28,15 @@ export class GestureRecognizer {
         distance(metric[t - 2], metric[0]) * 1.18,
     ).length;
     const threshold = 0.32 * sensitivity;
+    // Folded fingers mean a fist even when thumb and index happen to touch.
     const gesture: Hand["gesture"] =
-      pinch < (valid?.hand.gesture === "pinch" ? threshold * 1.4 : threshold)
-        ? "pinch"
-        : extended === 4
-          ? "open"
-          : extended === 0
-            ? "fist"
+      extended === 0
+        ? "fist"
+        : pinch <
+            (valid?.hand.gesture === "pinch" ? threshold * 1.4 : threshold)
+          ? "pinch"
+          : extended === 4
+            ? "open"
             : "neutral";
     const raw = {
       x: (points[0].x + points[9].x) / 2,

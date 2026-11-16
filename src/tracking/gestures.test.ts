@@ -21,6 +21,20 @@ describe("real gesture geometry", () => {
     for (const tip of [8, 12, 16, 20]) p[tip] = { x: 0.5, y: 0.7, z: 0 };
     expect(r.update(p, "left", 140).gesture).toBe("fist");
   });
+  it("prioritizes a closed fist even when thumb and index touch", () => {
+    const p = hand();
+    for (const tip of [8, 12, 16, 20]) p[tip] = { x: 0.5, y: 0.7, z: 0 };
+    p[4] = { ...p[8] };
+    expect(new GestureRecognizer().update(p, "left", 100).gesture).toBe("fist");
+  });
+  it("matches direct camera and mirrored overlay using a single horizontal flip", () => {
+    const point = { x: 0.8, y: 0.3, z: 0 };
+    const direct = project(point, 640, 480, 1000, 500, false),
+      mirror = project(point, 640, 480, 1000, 500, true);
+    expect(direct.x).toBeGreaterThan(0);
+    expect(mirror.x).toBeCloseTo(-direct.x);
+    expect(mirror.y).toBe(direct.y);
+  });
   it("pinch emits an edge once and uses release hysteresis", () => {
     const r = new GestureRecognizer();
     const p = hand();

@@ -16,6 +16,7 @@ import {
   HelpCircle,
   Power,
   ScanLine,
+  Crosshair,
 } from "lucide-react";
 import {
   defaults,
@@ -26,20 +27,29 @@ import {
 } from "./types";
 import { useCamera } from "./tracking/useCamera";
 import { Engine } from "./scene/engine";
+import { parsePreferences, preferenceVersion } from "./state/preferences";
+import type { SpatialState } from "./scene/spatial";
 function restore(): Settings {
   try {
-    const v = JSON.parse(localStorage.getItem("holomotion") ?? "null");
-    if (!v) return defaults;
-    return {
-      ...defaults,
-      color: /^#[0-9a-f]{6}$/i.test(v.color) ? v.color : defaults.color,
-      quality: [0, 1, 2].includes(v.quality) ? v.quality : 1,
-      mirror: typeof v.mirror === "boolean" ? v.mirror : true,
-    };
+    return parsePreferences(localStorage.getItem("holomotion"));
   } catch {
-    return defaults;
+    return { ...defaults };
   }
 }
+const spatialLabels: Record<SpatialState, string> = {
+  held: "Posición fijada · giro activo",
+  calibrating: "Calibrando espacio",
+  arming: "Recuperando control",
+  following: "Objeto en tus manos",
+  scaling: "Ajustando escala",
+};
+const spatialHints: Record<SpatialState, string> = {
+  held: "Abre la mano para moverlo de nuevo.",
+  calibrating: "Palma de frente, abierta y quieta un instante.",
+  arming: "Mantén la palma abierta; retomará sin saltos.",
+  following: "Puño: fijar · Acerca la palma: traer el objeto.",
+  scaling: "Separa ambas palmas para ampliar. Puño: fijar.",
+};
 const modes: { id: Mode; title: string; caption: string; icon: typeof Atom }[] =
   [
     {
@@ -91,6 +101,10 @@ export default function App() {
     hands: 0,
     gesture: "Sin seguimiento",
   });
+  const [space, setSpace] = useState<{
+    state: SpatialState;
+    calibrated: boolean;
+  }>({ state: "held", calibrated: false });
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
   const [demo, setDemo] = useState(false);
@@ -113,6 +127,7 @@ export default function App() {
             gesture: hands[0]?.gesture ?? "Sin seguimiento",
           });
         },
+        (state, calibrated) => setSpace({ state, calibrated }),
       );
       engine.current = instance;
     } catch {
@@ -138,9 +153,15 @@ export default function App() {
   useEffect(() => {
     engine.current?.update(settings);
     try {
-      localStorage.setItem("holomotion", JSON.stringify(settings));
+      localStorage.setItem(
+        "holomotion",
+        JSON.stringify({ ...settings, version: preferenceVersion }),
+      );
     } catch {}
   }, [settings]);
+  useEffect(() => {
+    if (camera.active) engine.current?.recalibrate();
+  }, [camera.active]);
   async function fullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -170,7 +191,7 @@ export default function App() {
           <button onClick={() => setHelp(true)}>
             <HelpCircle size={16} /> Guía de gestos
           </button>
-          <span className="version">V 1.0</span>
+          <span className="version">V 1.1</span>
         </div>
       </header>
       <main>
@@ -227,6 +248,7 @@ export default function App() {
                 ).map((s, i) => (
                   <button
                     className={settings.shape === s ? "active" : ""}
+                    aria-label={`Figura ${s}`}
                     onClick={() => change("shape", s)}
                     key={s}
                   >
@@ -358,15 +380,21 @@ export default function App() {
               muted
               className={settings.mirror ? "mirrored" : ""}
               style={{
-                opacity: camera.active && settings.cameraVisible ? 0.48 : 0,
+                opacity: camera.active && settings.cameraVisible ? 0.96 : 0,
               }}
             />
-            <div className="grid-floor" />
+            <div
+              className="grid-floor"
+              hidden={camera.active && settings.cameraVisible}
+            />
             <canvas ref={canvas} />
             <div className="stage-top">
               <span className="scene-tag">
                 <i />
                 {demo ? "EXPLORACIÓN CON RATÓN" : "HOLOMOTION ENGINE"}
+                <span className="orientation-chip">
+                  {settings.mirror ? "ESPEJO" : "IMAGEN DIRECTA"}
+                </span>
               </span>
               <div className="stage-buttons">
                 <button
@@ -403,6 +431,22 @@ export default function App() {
                 </button>
               </div>
             )}
+            {(camera.active || demo) && settings.mode !== "draw" && (
+              <div
+                className="spatial-hud"
+                data-state={space.state}
+                role="status"
+              >
+                <strong>{spatialLabels[space.state]}</strong>
+                <small>
+                  {demo
+                    ? "Mueve el ratón para explorar. Al salir, el objeto queda fijo."
+                    : !space.calibrated && space.state === "held"
+                      ? "Abre una palma de frente y quieta para calibrar."
+                      : spatialHints[space.state]}
+                </small>
+              </div>
+            )}
             {camera.loading && (
               <div className="loading">
                 <span className="spinner" />
@@ -418,7 +462,7 @@ export default function App() {
             <div className="stage-bottom">
               <div>
                 <span className="coordinate">X / Y / Z</span>
-                <small>PROFUNDIDAD VIRTUAL</small>
+                <small>CÁMARA FIJA · PROFUNDIDAD ESTIMADA</small>
               </div>
               <div className="tracking-pill">
                 <Hand size={16} />
@@ -456,7 +500,19 @@ export default function App() {
                 </button>
               )}
               <button
+                title="Calibrar espacio"
+                disabled={!camera.active || settings.mode === "draw"}
+                onClick={() => engine.current?.recalibrate()}
+              >
+                <Crosshair size={16} />
+                <span>Calibrar</span>
+              </button>
+              <button
                 title="Modo espejo"
+                aria-label={
+                  settings.mirror ? "Desactivar espejo" : "Activar espejo"
+                }
+                aria-pressed={settings.mirror}
                 className={settings.mirror ? "enabled" : ""}
                 onClick={() => change("mirror", !settings.mirror)}
               >
@@ -490,10 +546,10 @@ export default function App() {
           </div>
           <div className="gesture-cards">
             {[
-              ["✋", "Abre tu mano", "Expande el universo"],
-              ["✊", "Cierra el puño", "Concentra la energía"],
-              ["🤏", "Haz un pellizco", "Selecciona o dibuja"],
-              ["↔", "Separa tus manos", "Cambia la escala"],
+              ["✋", "Abre tu mano", "Mueve el holograma"],
+              ["✊", "Cierra el puño", "Fija posición; sigue girando"],
+              ["🤏", "Haz un pellizco", "Dibuja en el aire"],
+              ["↔", "Dos palmas abiertas", "Ajusta el tamaño"],
             ].map(([icon, title, desc]) => (
               <div key={title}>
                 <span>{icon}</span>
@@ -542,23 +598,37 @@ export default function App() {
             </p>
             <ol>
               <li>
-                Abre la palma para expandir. Cierra el puño para concentrar.
-              </li>
-              <li>Mueve la palma para trasladar; gira la muñeca para rotar.</li>
-              <li>Separa o acerca dos manos para cambiar la escala.</li>
-              <li>
-                En Dibujo, une pulgar e índice y mueve el índice. Suelta para
-                terminar el trazo.
+                Deja la cámara fija. Muestra una palma abierta, de frente y
+                quieta un instante para calibrar el espacio.
               </li>
               <li>
-                En Hologramas, elige una figura y pellizca para girarla un
-                octavo de vuelta.
+                Con la palma abierta, mueve el objeto. Acercarla a la cámara lo
+                trae hacia ti; alejarla lo lleva al fondo.
+              </li>
+              <li>
+                Cierra el puño para fijar posición y tamaño. Sigue girando,
+                incluso si retiras la mano. Al abrirla, retomas el control sin
+                saltos.
+              </li>
+              <li>
+                Para cambiar el tamaño, mantén ambas palmas abiertas y sepáralas
+                o acércalas. Durante ese gesto solo cambia la escala.
+              </li>
+              <li>
+                En Dibujo, une pulgar e índice para trazar; suelta para separar
+                los trazos.
               </li>
             </ol>
             <p>
+              La imagen es directa por defecto. El botón de espejo invierte
+              cámara y coordenadas juntas. Usa Calibrar si cambias de posición o
+              mueves la cámara.
+            </p>
+            <p>
               Ratón: mueve para desplazar; mantén pulsado para dibujar.
-              Reiniciar borra los trazos. PNG exporta solo los gráficos, sin
-              cámara. La profundidad es una estimación visual.
+              Reiniciar borra los trazos. PNG exporta gráficos sin cámara. La
+              profundidad es estimada: no se mapea la habitación ni se oculta el
+              objeto detrás de manos o muebles.
             </p>
             <button className="primary" onClick={() => setHelp(false)}>
               Entendido, a crear <ChevronRight size={16} />
