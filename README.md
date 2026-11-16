@@ -28,10 +28,10 @@ La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial 
 
 ## Arquitectura y decisiones
 
-- `tracking/useCamera.ts`: permisos, stream, carga local de MediaPipe, detección VIDEO hasta 25 Hz, limpieza y errores. CPU por compatibilidad; detección síncrona en el hilo principal, potencial límite en dispositivos lentos.
+- `tracking/useCamera.ts`: permisos, stream, carga local de MediaPipe, detección VIDEO hasta 20 Hz, limpieza y errores. Inferencia en un Web Worker independiente, con GPU y alternativa CPU si la inicialización GPU falla. Solo se transfiere un fotograma pendiente; la frecuencia se adapta a la duración de inferencia, sin acumular imágenes.
 - `tracking/gestures.ts`: estados por mano, medidas normalizadas según palma y relación de aspecto, suavizado temporal, histéresis de pellizco, eventos de inicio y expiración de historial.
 - `scene/shapes.ts`: posiciones precomputadas para BufferGeometry.
-- `scene/engine.ts`: renderizador transparente, cámara virtual, partículas, objetos, trazos y energía; un único requestAnimationFrame. Materiales y geometrías persistentes; los trazos se crean solo al dibujar y se acotan.
+- `scene/engine.ts`: renderizador transparente, cámara virtual, partículas, objetos, trazos y energía; un único requestAnimationFrame. Materiales y geometrías persistentes; los trazos se agrupan en un InstancedMesh de hasta 1800 segmentos, con una sola llamada de dibujo.
 - `App.tsx`: controles y estado. Preferencias de color, calidad y espejo restauradas desde localStorage.
 
 El video utiliza `object-fit: contain`; el proyector aplica el mismo ajuste y espejo. La profundidad es virtual/estimada, **no una medición física** a partir de RGB. El dibujo se fija al plano virtual para evitar saltos de profundidad.
@@ -79,3 +79,13 @@ Activación inicial por el propietario del repositorio:
 3. Al terminar correctamente, la dirección prevista es `https://yudmernp-cmd.github.io/HOLOG3D/`. El enlace publicado también aparece en el entorno `github-pages` del workflow.
 
 La cámara necesita HTTPS y permiso del navegador. Subir el workflow no confirma que Pages esté activado ni que el despliegue haya terminado.
+
+### Corrección de fluidez
+
+El seguimiento ya no bloquea el hilo de la interfaz: `public/hand-worker.js` ejecuta MediaPipe con GPU cuando está disponible y CPU como alternativa. El bitmap se transfiere al worker, se cierra tras inferir y nunca se acumulan solicitudes. El seguimiento se pausa en pestañas ocultas. Terminar la cámara también termina el worker.
+
+El renderizador solicita gráficos de alto rendimiento, omite actualizaciones de partículas ocultas y reutiliza los segmentos de dibujo mediante instancias. La captura PNG renderiza solo al exportar, sin conservar el framebuffer en cada fotograma. No se garantiza una frecuencia concreta: depende del navegador, aceleración gráfica, energía y resolución.
+
+Verificación de la corrección: comparación de ocho segundos en Chromium con cámara virtual de dos manos, misma ventana (1280×900) y gráficos SwiftShader. Antes: 11 FPS, p95 entre fotogramas 117 ms, 87 tareas largas y 7844 ms acumulados en ellas. Después: 32 FPS, p95 50 ms, una tarea larga de 50 ms. No son resultados de una RTX 3050 ni garantías para otros equipos.
+
+Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.

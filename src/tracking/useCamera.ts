@@ -5,7 +5,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
+import type { HandLandmarkerResult } from "@mediapipe/tasks-vision";
 import { GestureRecognizer } from "./gestures";
 import type { Settings, Tracking } from "../types";
 export function useCamera(
@@ -18,7 +18,8 @@ export function useCamera(
   const [loading, setLoading] = useState(false);
   const resources = useRef<{
     stream?: MediaStream;
-    model?: HandLandmarker;
+    worker?: Worker;
+    cancelInit?: () => void;
     raf: number;
     generation: number;
   }>({ raf: 0, generation: 0 });
@@ -27,8 +28,10 @@ export function useCamera(
     r.generation++;
     cancelAnimationFrame(r.raf);
     r.stream?.getTracks().forEach((t) => t.stop());
-    r.model?.close();
-    r.model = undefined;
+    r.cancelInit?.();
+    r.cancelInit = undefined;
+    r.worker?.terminate();
+    r.worker = undefined;
     r.stream = undefined;
     tracking.current.hands = [];
     if (video.current) video.current.srcObject = null;
@@ -68,39 +71,31 @@ export function useCamera(
         },
         { once: true },
       );
-      const asset = await fetch(
-        `${import.meta.env.BASE_URL}models/hand_landmarker.task`,
-        { signal: AbortSignal.timeout(30000) },
-      );
-      if (
-        !asset.ok ||
-        asset.headers.get("content-type")?.includes("text/html")
-      ) {
-        throw new Error(
-          "Falta el modelo de manos. Ejecuta npm run setup:assets con acceso a storage.googleapis.com.",
+      const worker = new Worker(`${import.meta.env.BASE_URL}hand-worker.js`);
+      r.worker = worker;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(
+          () => reject(new Error("El seguimiento tardó demasiado en iniciar.")),
+          45000,
         );
-      }
-      const modelBytes = new Uint8Array(await asset.arrayBuffer());
-      if (generation !== r.generation) return;
-      const files = await FilesetResolver.forVisionTasks(
-        `${import.meta.env.BASE_URL}wasm`,
-      );
-      const model = await HandLandmarker.createFromOptions(files, {
-        baseOptions: {
-          modelAssetBuffer: modelBytes,
-          delegate: "CPU",
-        },
-        runningMode: "VIDEO",
-        numHands: 2,
-        minHandDetectionConfidence: 0.55,
-        minTrackingConfidence: 0.55,
-        minHandPresenceConfidence: 0.55,
+        r.cancelInit = () => {
+          clearTimeout(timeout);
+          reject(new Error("Inicio cancelado"));
+        };
+        worker.onerror = () => {
+          clearTimeout(timeout);
+          r.cancelInit = undefined;
+          reject(new Error("No se pudo iniciar el procesador de manos."));
+        };
+        worker.onmessage = ({ data }) => {
+          clearTimeout(timeout);
+          r.cancelInit = undefined;
+          if (data.type === "ready") resolve();
+          else reject(new Error(data.message));
+        };
+        worker.postMessage({ type: "init" });
       });
-      if (generation !== r.generation) {
-        model.close();
-        return;
-      }
-      r.model = model;
+      if (generation !== r.generation) return;
       const v = video.current!;
       v.srcObject = stream;
       await v.play();
@@ -109,37 +104,73 @@ export function useCamera(
       setLoading(false);
       setStatus("Seguimiento local activo");
       const gestures = new GestureRecognizer();
-      let last = -1;
-      let tick = 0;
-      const loop = (now: number) => {
+      let last = -1,
+        tick = 0,
+        received = performance.now(),
+        interval = 50;
+      let busy = false;
+      const fail = () => {
         if (generation !== r.generation) return;
-        try {
-          if (v.readyState >= 2 && v.currentTime !== last && now - tick > 40) {
-            last = v.currentTime;
-            tick = now;
-            const result = model.detectForVideo(v, now);
-            tracking.current = {
-              width: v.videoWidth,
-              height: v.videoHeight,
-              hands: result.landmarks.map((p, i) =>
-                gestures.update(
-                  p,
-                  result.handedness[i]?.[0]?.categoryName ?? String(i),
-                  now,
-                  settings.current.sensitivity,
-                  v.videoWidth / v.videoHeight,
-                ),
-              ),
-            };
-          }
-        } catch {
-          stop();
-          setStatus(
-            "Falló el seguimiento. Reactiva la cámara para reintentar.",
-          );
+        stop();
+        setStatus("Falló el seguimiento. Reactiva la cámara para reintentar.");
+      };
+      worker.onerror = fail;
+      worker.onmessage = ({
+        data,
+      }: MessageEvent<
+        HandLandmarkerResult & {
+          type: string;
+          duration: number;
+          timestamp: number;
+        }
+      >) => {
+        if (generation !== r.generation) return;
+        busy = false;
+        if (data.type !== "result") {
+          fail();
           return;
         }
-        if (now - tick > 250) tracking.current.hands = [];
+        received = performance.now();
+        interval = Math.min(200, Math.max(50, data.duration * 1.25));
+        tracking.current = {
+          width: v.videoWidth,
+          height: v.videoHeight,
+          hands: data.landmarks.map((points, i) =>
+            gestures.update(
+              points,
+              data.handedness[i]?.[0]?.categoryName ?? String(i),
+              data.timestamp,
+              settings.current.sensitivity,
+              v.videoWidth / v.videoHeight,
+            ),
+          ),
+        };
+      };
+      const loop = (now: number) => {
+        if (generation !== r.generation) return;
+        if (
+          !busy &&
+          !document.hidden &&
+          v.readyState >= 2 &&
+          v.currentTime !== last &&
+          now - tick >= interval
+        ) {
+          busy = true;
+          last = v.currentTime;
+          tick = now;
+          createImageBitmap(v)
+            .then((bitmap) => {
+              if (generation !== r.generation) {
+                bitmap.close();
+                return;
+              }
+              worker.postMessage({ type: "frame", bitmap, timestamp: now }, [
+                bitmap,
+              ]);
+            })
+            .catch(fail);
+        }
+        if (now - received > 500) tracking.current.hands = [];
         r.raf = requestAnimationFrame(loop);
       };
       r.raf = requestAnimationFrame(loop);

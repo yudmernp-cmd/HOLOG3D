@@ -6,3 +6,5 @@ dist/
 
 public/wasm/
 public/models/*.task
+
+public/vision-runtime.js

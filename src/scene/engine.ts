@@ -15,7 +15,16 @@ export class Engine {
   hologram: T.Mesh;
   wire: T.LineSegments;
   rings: T.Mesh[] = [];
-  strokes: T.Mesh[] = [];
+  strokes = new T.InstancedMesh(
+    new T.CylinderGeometry(1, 1, 1, 6),
+    new T.MeshBasicMaterial(),
+    1800,
+  );
+  strokeTransform = new T.Object3D();
+  strokeDirection = new T.Vector3();
+  strokeAxis = new T.Vector3(0, 1, 0);
+  scaleTarget = new T.Vector3();
+  color = new T.Color();
   strokeGroup = new T.Group();
   markers: T.Points;
   markerData = new Float32Array(126);
@@ -53,12 +62,17 @@ export class Engine {
     onStats: (fps: number, quality: number) => void,
   ) {
     this.settings = settings;
+    this.strokes.count = 0;
+    this.strokes.frustumCulled = false;
+    this.strokes.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    this.strokeGroup.add(this.strokes);
     this.onStats = onStats;
     this.renderer = new T.WebGLRenderer({
       canvas,
       alpha: true,
       antialias: true,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
+      powerPreference: "high-performance",
     });
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -173,12 +187,7 @@ export class Engine {
     this.settings = s;
   }
   clear() {
-    for (const m of this.strokes) {
-      m.geometry.dispose();
-      (m.material as T.Material).dispose();
-      this.strokeGroup.remove(m);
-    }
-    this.strokes = [];
+    this.strokes.count = 0;
     this.drawCount = 0;
     this.lastPoint = null;
   }
@@ -192,6 +201,7 @@ export class Engine {
   export() {
     const link = document.createElement("a");
     link.download = "holomotion.png";
+    this.renderer.render(this.scene, this.camera);
     link.href = this.canvas.toDataURL("image/png");
     link.click();
   }
@@ -223,7 +233,7 @@ export class Engine {
                 : new T.IcosahedronGeometry(1, s.shape === "Icosaedro" ? 0 : 1);
       this.wire.geometry = new T.EdgesGeometry(this.hologram.geometry);
     }
-    const color = new T.Color(s.color);
+    const color = this.color.set(s.color);
     (this.points.material as T.PointsMaterial).color.copy(color);
     (this.hologram.material as T.MeshBasicMaterial).color.copy(color);
     (this.wire.material as T.LineBasicMaterial).color.copy(color);
@@ -262,7 +272,7 @@ export class Engine {
       );
     if (hand?.gesture === "open") scale *= 1.3;
     if (hand?.gesture === "fist") scale *= 0.45;
-    this.group.scale.lerp(new T.Vector3(scale, scale, scale), smoothing);
+    this.group.scale.lerp(this.scaleTarget.setScalar(scale), smoothing);
     if (hand) {
       const angle = (s.mirror ? -1 : 1) * hand.angle;
       const delta = Math.atan2(
@@ -308,25 +318,27 @@ export class Engine {
       this.beam.geometry.attributes.position.needsUpdate = true;
       (this.beam.material as T.LineBasicMaterial).color.copy(color);
     }
-    for (let i = 0; i < count; i++) {
-      const j = i * 3;
-      for (let k = 0; k < 3; k++) {
-        let target = this.target[j + k];
-        if (energy) {
-          const t = (i * 0.618033988749895) % 1;
-          const a = t * 45 + now * 0.0003 * (1 + (hand?.speed ?? 0));
-          target =
-            k === 0
-              ? Math.cos(a) * Math.sqrt(t)
-              : k === 2
-                ? Math.sin(a) * Math.sqrt(t)
-                : Math.sin(t * 20 + now * 0.002) * 0.25;
-          target *= 1 + (hand?.speed ?? 0) * 0.4 + this.burst * 2;
+    if (this.points.visible)
+      for (let i = 0; i < count; i++) {
+        const j = i * 3;
+        for (let k = 0; k < 3; k++) {
+          let target = this.target[j + k];
+          if (energy) {
+            const t = (i * 0.618033988749895) % 1;
+            const a = t * 45 + now * 0.0003 * (1 + (hand?.speed ?? 0));
+            target =
+              k === 0
+                ? Math.cos(a) * Math.sqrt(t)
+                : k === 2
+                  ? Math.sin(a) * Math.sqrt(t)
+                  : Math.sin(t * 20 + now * 0.002) * 0.25;
+            target *= 1 + (hand?.speed ?? 0) * 0.4 + this.burst * 2;
+          }
+          this.positions[j + k] += (target - this.positions[j + k]) * smoothing;
         }
-        this.positions[j + k] += (target - this.positions[j + k]) * smoothing;
       }
-    }
-    this.geometry.attributes.position.needsUpdate = true;
+    if (this.points.visible)
+      this.geometry.attributes.position.needsUpdate = true;
     this.rings.forEach((ring, i) => {
       ring.visible = energy && (quality > 0 || i < 2);
       ring.rotation.z += dt * (0.1 + i * 0.08) * (1 + (hand?.speed ?? 0));
@@ -390,13 +402,27 @@ export class Engine {
         point.distanceTo(this.lastPoint) > 2 &&
         this.drawCount < 1800
       ) {
-        const path = new T.LineCurve3(this.lastPoint.clone(), point.clone());
-        const m = new T.Mesh(
-          new T.TubeGeometry(path, 1, s.thickness / 2, 6, false),
-          new T.MeshBasicMaterial({ color: s.color }),
+        this.strokeDirection.subVectors(point, this.lastPoint);
+        this.strokeTransform.position
+          .copy(this.lastPoint)
+          .add(point)
+          .multiplyScalar(0.5);
+        this.strokeTransform.quaternion.setFromUnitVectors(
+          this.strokeAxis,
+          this.strokeDirection.clone().normalize(),
         );
-        this.strokeGroup.add(m);
-        this.strokes.push(m);
+        this.strokeTransform.scale.set(
+          s.thickness / 2,
+          this.strokeDirection.length(),
+          s.thickness / 2,
+        );
+        this.strokeTransform.updateMatrix();
+        this.strokes.setMatrixAt(this.drawCount, this.strokeTransform.matrix);
+        this.strokes.setColorAt(this.drawCount, color);
+        this.strokes.count = this.drawCount + 1;
+        this.strokes.instanceMatrix.needsUpdate = true;
+        if (this.strokes.instanceColor)
+          this.strokes.instanceColor.needsUpdate = true;
         this.drawCount++;
       }
       this.lastPoint = point;
@@ -430,6 +456,7 @@ export class Engine {
         materials.forEach((m) => m.dispose());
       }
     });
+    this.strokes.dispose();
     this.renderer.dispose();
   }
 }

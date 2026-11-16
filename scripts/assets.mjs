@@ -25,9 +25,14 @@ try {
   if (process.argv.includes("--check")) {
     validate(await readFile(target));
     await access("public/wasm/vision_wasm_internal.wasm");
+    await access("public/vision-runtime.js");
     console.log("Modelo y runtime WASM presentes.");
   } else {
     await mkdir("public/wasm", { recursive: true });
+    await cp(
+      "node_modules/@mediapipe/tasks-vision/vision_bundle.cjs",
+      "public/vision-runtime.js",
+    );
     await cp("node_modules/@mediapipe/tasks-vision/wasm", "public/wasm", {
       recursive: true,
     });
