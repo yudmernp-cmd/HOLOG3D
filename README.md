@@ -18,7 +18,7 @@ La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial 
 
 ## Uso
 
-- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. El video se muestra sin reflejo por defecto. Las preferencias de la versión anterior se migran a imagen directa; un cambio de espejo posterior se recuerda. El botón espejo transforma juntos video, coordenadas, objetos y trazos.
+- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. La vista predeterminada sigue tus movimientos: tu derecha corresponde a la derecha de la pantalla (etiqueta **DERECHA → DERECHA**). Una cámara que te mira de frente capta ese movimiento hacia la izquierda del sensor, por lo que se aplica una única inversión horizontal al video y a las coordenadas. La antigua opción **IMAGEN DIRECTA** se migra automáticamente. **Invertir izquierda/derecha** cambia entre esa vista y **VISTA DE CÁMARA**, y recuerda la elección. Los objetos y los trazos cambian junto con el video.
 - **Partículas:** siete figuras interpoladas con giro continuo. Palma abierta mueve; puño fija posición y tamaño sin detener el giro. Al abrir de nuevo se retoma desde la ubicación actual, sin saltos.
 - **Hologramas:** selecciona una figura en el panel. La misma interacción controla posición y profundidad; dos palmas abiertas de forma sostenida permiten escalar sin trasladar simultáneamente. El pellizco se reserva al dibujo.
 - **Dibujo:** une índice y pulgar para trazar con el índice. Suelta para separar trazos. Configura color y grosor; reinicia para borrar. Se limita a 1800 segmentos para acotar memoria. PNG guarda gráficos transparentes, sin video.
@@ -46,7 +46,7 @@ Se liberan stream, detector, RAF, ResizeObserver, geometrías y materiales al de
 ## Validación manual con cámara
 
 1. Probar permiso aceptado y denegado, cámara ocupada y desconexión.
-2. Verificar los 21 puntos de cada una de dos manos, espejo activado/desactivado y ventanas vertical/horizontal.
+2. Verificar los 21 puntos de cada una de dos manos, ambas orientaciones y ventanas vertical/horizontal. Moviendo la mano hacia tu derecha, comprueba que la imagen y el objeto se desplazan a la derecha con **DERECHA → DERECHA**.
 3. Probar apertura, puño, pellizco sostenido, liberación, movimiento, rotación y escala de dos manos.
 4. Cambiar los cuatro modos, dibujar trazos separados y descargar PNG.
 5. Desactivar cámara, reactivar, ocultar controles, pantalla completa y comprobar liberación del indicador de cámara al salir.
@@ -60,7 +60,7 @@ Verificado el 16 de noviembre de 2026:
 
 - `npm ci --cache /tmp/holomotion-npm`: instalación reproducible y descarga del modelo oficial completadas.
 - `npm run build`: recursos de visión presentes, TypeScript y compilación de producción correctos.
-- `npm test`: 21 pruebas aprobadas de gestos, proyección, migración de preferencias y control espacial.
+- `npm test`: 24 pruebas aprobadas de gestos, proyección, orientación, migración de preferencias y control espacial.
 - Chromium con WebGL software: cuatro modos, ratón, guía, exportación PNG, controles inmersivos y vista móvil sin desbordamiento; sin excepciones de JavaScript.
 - MediaPipe ejecutado realmente en Chromium sobre una cámara de prueba alimentada con la imagen oficial `https://storage.googleapis.com/mediapipe-assets/right_hands.jpg`: **dos manos detectadas**, sin sustituir ni simular los resultados del detector.
 - Cambio entre los cuatro modos con seguimiento activo, desactivación/reactivación del detector y comprobación de que los tracks de cámara terminan correctamente.
@@ -104,3 +104,9 @@ Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwr
 La profundidad se estima con el tamaño aparente de la palma, dentro de límites, con zona muerta y velocidad acotada. Una palma muy inclinada deja de actualizar profundidad para reducir cambios por escorzo. No se obtiene profundidad métrica, no se reconstruye la habitación y no hay oclusión real por manos o muebles. El aro es una referencia holográfica flotante, no un suelo detectado. La lente virtual asume 50° verticales: distintas webcams pueden requerir calibración física adicional para una coincidencia óptica exacta.
 
 Prueba manual pendiente en webcam física: calibra, desplaza el objeto, cierra el puño mientras alejas la mano, verifica que permanece girando en su lugar y ábrela en otra posición para retomar sin salto. Comprueba acercamiento/alejamiento y escala de dos manos. Las secuencias automatizadas verifican la lógica con landmarks sintéticos y el renderizador, pero no sustituyen esta prueba de ergonomía y reconocimiento dinámico.
+
+### Orientación V 1.2
+
+La preferencia versionada guarda `cameraOrientation: "user" | "camera"`, en lugar del ambiguo booleano antiguo. Las sesiones V 1.1 con **IMAGEN DIRECTA** se migran a la vista que sigue al usuario; color y calidad se conservan. Las elecciones realizadas con el nuevo botón persisten. MediaPipe sigue recibiendo fotogramas sin modificar; `tracking/orientation.ts` centraliza la inversión aplicada al video, puntos y control espacial para evitar una doble inversión.
+
+La prueba `tests/browser/orientation.cjs` usa un video sintético asimétrico, captura sus píxeles realmente mostrados y compara su ubicación con la proyección de los landmarks. Verifica dirección derecha/izquierda, alineación, migración, cambio de orientación y persistencia. No simula una detección de manos ni sustituye la comprobación con una webcam física.

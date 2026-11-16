@@ -346,9 +346,6 @@ input[type="range"] {
 .stage video {
   transition: opacity 0.4s;
 }
-.mirrored {
-  transform: scaleX(-1);
-}
 .grid-floor {
   position: absolute;
   inset: 45% -50% -80%;
@@ -838,4 +835,12 @@ button:disabled {
     margin-left: 6px;
     font-size: 6px;
   }
+}
+
+/* Keep the explicit orientation control usable on narrow laptops and phones. */
+.toolbar {
+  flex-wrap: wrap;
+}
+.tools {
+  flex-wrap: wrap;
 }

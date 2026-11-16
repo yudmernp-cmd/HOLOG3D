@@ -20,37 +20,32 @@ const assert = require("node:assert/strict");
     if (!localStorage.getItem("holomotion"))
       localStorage.setItem(
         "holomotion",
-        JSON.stringify({ mirror: true, color: "#00d9ff", quality: 0 }),
+        JSON.stringify({
+          version: 2,
+          mirror: false,
+          color: "#00d9ff",
+          quality: 0,
+        }),
       );
   });
   await page.goto(process.env.TEST_URL || "http://localhost:5173");
-  assert.equal(
-    await page
-      .getByRole("button", { name: "Activar espejo", exact: true })
-      .getAttribute("aria-pressed"),
-    "false",
-  );
-  assert.equal(
-    await page.locator("video").evaluate((v) => getComputedStyle(v).transform),
-    "none",
-  );
-  await page
-    .getByRole("button", { name: "Activar espejo", exact: true })
-    .click();
+  const orientationButton = page.getByRole("button", {
+    name: "Invertir izquierda/derecha",
+    exact: true,
+  });
+  assert.equal(await orientationButton.getAttribute("aria-pressed"), "true");
   assert.match(
     await page.locator("video").evaluate((v) => getComputedStyle(v).transform),
     /^matrix\(-1/,
   );
-  await page.reload();
+  await orientationButton.click();
   assert.equal(
-    await page
-      .getByRole("button", { name: "Desactivar espejo", exact: true })
-      .getAttribute("aria-pressed"),
-    "true",
+    await page.locator("video").evaluate((v) => getComputedStyle(v).transform),
+    "none",
   );
-  await page
-    .getByRole("button", { name: "Desactivar espejo", exact: true })
-    .click();
+  await page.reload();
+  assert.equal(await orientationButton.getAttribute("aria-pressed"), "false");
+  await orientationButton.click();
   const result = await page.evaluate(async () => {
     const { Engine } = await import("/src/scene/engine.ts");
     const { defaults } = await import("/src/types.ts");
@@ -108,7 +103,12 @@ const assert = require("node:assert/strict");
       position: engine.group.position.toArray(),
       rotation: engine.group.rotation.y,
     };
-    engine.update({ ...defaults, mode: "hologram", quality: 0, mirror: true });
+    engine.update({
+      ...defaults,
+      mode: "hologram",
+      quality: 0,
+      mirror: !defaults.mirror,
+    });
     step([]);
     const mirrored = engine.group.position.toArray();
     engine.dispose();

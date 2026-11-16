@@ -1,8 +1,8 @@
 import { defaults, type Settings } from "../types";
 
-// Version 2 replaces the old mirrored default, including already saved sessions.
-// An explicit mirror choice made with this version is preserved on subsequent loads.
-export const preferenceVersion = 2;
+// Version 3 migrates the misleading 'direct image' default to user-relative
+// controls. Store an explicit orientation, not the ambiguous legacy mirror flag.
+export const preferenceVersion = 3;
 export function parsePreferences(raw: string | null): Settings {
   try {
     const value = JSON.parse(raw ?? "null");
@@ -17,11 +17,20 @@ export function parsePreferences(raw: string | null): Settings {
         ? value.quality
         : defaults.quality,
       mirror:
-        value.version === preferenceVersion && typeof value.mirror === "boolean"
-          ? value.mirror
-          : false,
+        value.version === preferenceVersion &&
+        value.cameraOrientation === "camera"
+          ? false
+          : true,
     };
   } catch {
     return { ...defaults };
   }
+}
+export function serializePreferences(settings: Settings): string {
+  const { mirror, ...rest } = settings;
+  return JSON.stringify({
+    ...rest,
+    version: preferenceVersion,
+    cameraOrientation: mirror ? "user" : "camera",
+  });
 }

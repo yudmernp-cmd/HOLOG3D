@@ -1,4 +1,5 @@
 import type { Hand, Point } from "../types";
+import { displayX } from "./orientation";
 const distance = (a: Point, b: Point) =>
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 export class GestureRecognizer {
@@ -77,7 +78,7 @@ export function project(
 ) {
   const scale = Math.min(width / vw, height / vh);
   return {
-    x: ((mirror ? 1 - p.x : p.x) - 0.5) * vw * scale,
+    x: (displayX(p.x, mirror) - 0.5) * vw * scale,
     y: (0.5 - p.y) * vh * scale,
     z: -p.z * vw * scale,
   };

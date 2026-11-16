@@ -27,8 +27,9 @@ import {
 } from "./types";
 import { useCamera } from "./tracking/useCamera";
 import { Engine } from "./scene/engine";
-import { parsePreferences, preferenceVersion } from "./state/preferences";
+import { parsePreferences, serializePreferences } from "./state/preferences";
 import type { SpatialState } from "./scene/spatial";
+import { videoTransform } from "./tracking/orientation";
 function restore(): Settings {
   try {
     return parsePreferences(localStorage.getItem("holomotion"));
@@ -153,10 +154,7 @@ export default function App() {
   useEffect(() => {
     engine.current?.update(settings);
     try {
-      localStorage.setItem(
-        "holomotion",
-        JSON.stringify({ ...settings, version: preferenceVersion }),
-      );
+      localStorage.setItem("holomotion", serializePreferences(settings));
     } catch {}
   }, [settings]);
   useEffect(() => {
@@ -191,7 +189,7 @@ export default function App() {
           <button onClick={() => setHelp(true)}>
             <HelpCircle size={16} /> Guía de gestos
           </button>
-          <span className="version">V 1.1</span>
+          <span className="version">V 1.2</span>
         </div>
       </header>
       <main>
@@ -378,9 +376,9 @@ export default function App() {
               ref={video}
               playsInline
               muted
-              className={settings.mirror ? "mirrored" : ""}
               style={{
                 opacity: camera.active && settings.cameraVisible ? 0.96 : 0,
+                transform: videoTransform(settings.mirror),
               }}
             />
             <div
@@ -393,7 +391,7 @@ export default function App() {
                 <i />
                 {demo ? "EXPLORACIÓN CON RATÓN" : "HOLOMOTION ENGINE"}
                 <span className="orientation-chip">
-                  {settings.mirror ? "ESPEJO" : "IMAGEN DIRECTA"}
+                  {settings.mirror ? "DERECHA → DERECHA" : "VISTA DE CÁMARA"}
                 </span>
               </span>
               <div className="stage-buttons">
@@ -508,15 +506,14 @@ export default function App() {
                 <span>Calibrar</span>
               </button>
               <button
-                title="Modo espejo"
-                aria-label={
-                  settings.mirror ? "Desactivar espejo" : "Activar espejo"
-                }
+                title="Invertir izquierda/derecha"
+                aria-label="Invertir izquierda/derecha"
                 aria-pressed={settings.mirror}
                 className={settings.mirror ? "enabled" : ""}
                 onClick={() => change("mirror", !settings.mirror)}
               >
                 <ScanLine size={16} />
+                <span>Invertir izquierda/derecha</span>
               </button>
               <button
                 title="Mostrar u ocultar cámara"
@@ -620,9 +617,11 @@ export default function App() {
               </li>
             </ol>
             <p>
-              La imagen es directa por defecto. El botón de espejo invierte
-              cámara y coordenadas juntas. Usa Calibrar si cambias de posición o
-              mueves la cámara.
+              Por defecto, tu derecha corresponde a la derecha de la pantalla.
+              La vista de cámara sin invertir ve tus movimientos desde enfrente.
+              El botón Invertir izquierda/derecha cambia juntos el video y los
+              gráficos, y recuerda tu elección. Usa Calibrar si cambias de
+              posición o mueves la cámara.
             </p>
             <p>
               Ratón: mueve para desplazar; mantén pulsado para dibujar.

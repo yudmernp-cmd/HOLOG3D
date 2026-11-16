@@ -1,4 +1,5 @@
 import type { Hand } from "../types";
+import { displayX } from "../tracking/orientation";
 
 export type SpatialState =
   "held" | "calibrating" | "arming" | "following" | "scaling";
@@ -53,7 +54,7 @@ function frontal(hand: Hand, aspect: number) {
 }
 function center(hand: Hand, mirror: boolean) {
   return {
-    x: (mirror ? 1 - hand.center.x : hand.center.x) - 0.5,
+    x: displayX(hand.center.x, mirror) - 0.5,
     y: 0.5 - hand.center.y,
   };
 }
