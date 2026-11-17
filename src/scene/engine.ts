@@ -1,4 +1,5 @@
 import * as T from "three";
+import { trackingIsFresh } from "../tracking/freshness";
 import { InteractionController, type Contact } from "../interaction/controller";
 import { SurfaceContact } from "../interaction/contact";
 import type { Settings, Tracking } from "../types";
@@ -7,6 +8,8 @@ import { project } from "../tracking/gestures";
 import { shapePositions } from "./shapes";
 export class Engine {
   interaction = new InteractionController();
+  onInteraction: (state: string) => void = () => {};
+  private reportedState = "";
   surface = new SurfaceContact();
   contactDot = new T.Mesh(
     new T.SphereGeometry(4, 12, 8),
@@ -112,7 +115,7 @@ export class Engine {
         shininess: 70,
         specular: 0x67e8f9,
         transparent: true,
-        opacity: 0.65,
+        opacity: 0.12,
         side: T.FrontSide,
         depthWrite: true,
       }),
@@ -246,7 +249,7 @@ export class Engine {
     const s = this.settings;
     const data = this.tracking();
     const hands =
-      data.timestamp !== undefined && now - data.timestamp > 250
+      !trackingIsFresh(data, now)
         ? this.emptyHands
         : data.hands;
     const hand = hands[0];
@@ -338,6 +341,7 @@ export class Engine {
         );
         this.contacts.push({
           ...input,
+          observedAt: data.receivedAt ?? now,
           hit: this.surface.hit,
           near: this.surface.near,
         });
@@ -357,13 +361,17 @@ export class Engine {
         this.height,
         s.sensitivity,
       );
+    if (this.reportedState !== this.interaction.state) {
+      this.reportedState = this.interaction.state;
+      this.onInteraction(this.reportedState);
+    }
     this.group.position.copy(this.interaction.position);
     this.group.quaternion.copy(this.interaction.rotation);
     this.group.scale.setScalar(this.baseRadius * this.interaction.scale);
     const selected = this.interaction.grips.size > 0;
     const material = this.hologram.material as T.MeshPhongMaterial;
     material.opacity +=
-      ((selected ? 0.85 : this.surface.near ? 0.75 : 0.65) - material.opacity) *
+      ((selected ? 0.22 : this.surface.near ? 0.17 : 0.12) - material.opacity) *
       smoothing;
     const energy = mode === "energy";
     if (hand?.gesture === "open" && this.previousGesture === "fist")

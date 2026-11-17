@@ -141,3 +141,20 @@ describe("direct manipulation scenarios", () => {
     expect(c.grips.size).toBe(1);
   });
 });
+
+it('retains surface contact while fingers close near the edge, without jumping', () => {
+ const {c,step}=setup();
+ step([hand('a',90,0,false)]);
+ step([{...hand('a',102,0,true,false),near:true}]);
+ expect(c.grips.size).toBe(1); expect(c.position.x).toBe(0);
+ step([hand('a',152,0,true,false)]);
+ expect(c.position.x).toBeGreaterThan(30);
+});
+it('does not turn proximity alone, expired contact, or far-away pinch into a grab', () => {
+ for(const kind of ['hover','expired','far']) {
+  const {c,step}=setup();
+  step([{...hand('a',90,0,false,kind !== 'hover'),near:true}]);
+  step([{...hand('a',kind === 'far' ? 130 : 102,0,true,false),near:true}],kind === 'expired' ? 300 : 50);
+  expect(c.grips.size).toBe(0);
+ }
+});

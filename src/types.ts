@@ -22,6 +22,7 @@ export type Hand = {
 };
 export type Tracking = {
   timestamp?: number;
+  receivedAt?: number;
   hands: Hand[];
   width: number;
   height: number;

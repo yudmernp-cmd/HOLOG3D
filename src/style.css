@@ -761,3 +761,5 @@ footer b {
 
 .interaction-help { font-size: 12px; line-height: 1.6; color: #94a3b8; margin: 10px 0 16px; }
 #manipulation { width: 100%; background: #10182c; color: #f8fafc; padding: 10px; border: 1px solid #24354c; border-radius: 8px; }
+
+.contact-instruction { position: absolute; top: 65px; left: 16px; right: 16px; text-align: center; pointer-events: none; color: #a5f3fc; font-size: 12px; text-shadow: 0 1px 4px #050816; z-index: 2; }

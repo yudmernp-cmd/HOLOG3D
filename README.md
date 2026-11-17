@@ -48,7 +48,7 @@ La posición final no se guarda entre recargas; Reiniciar centra la figura y bor
 - `src/scene/engine.ts`: Three.js, composición, formas, contactos, feedback, dibujo por instancias y calidad adaptativa. Geometrías/materiales se crean al iniciar o cambiar figura, no cada frame.
 - `src/App.tsx`, `src/types.ts` y `src/style.css`: selector contextual, instrucciones, estado y configuración; se conserva la estructura visual existente.
 
-Una observación de cámara de más de 250 ms se considera obsoleta. Al desaparecer una mano agarrada, se congela la transformación durante hasta 280 ms. Si vuelve, se recalibran las referencias a la transformación conservada; si no vuelve, se libera. No se extrapola velocidad ni se lanza el holograma. Un pellizco mantenido no vuelve a seleccionar automáticamente la misma identidad tras liberar por pérdida.
+La frescura se mide desde la recepción del resultado: una inferencia lenta recién recibida ya no se descarta por superar 250 ms desde la captura. Tras 500 ms sin resultados nuevos, se considera perdido el seguimiento. Al desaparecer una mano agarrada, se congela la transformación durante hasta 280 ms. Si vuelve, se recalibran las referencias a la transformación conservada; si no vuelve, se libera. No se extrapola velocidad ni se lanza el holograma. Un pellizco mantenido no vuelve a seleccionar automáticamente la misma identidad tras liberar por pérdida.
 
 ## Composición y límites
 
@@ -77,7 +77,7 @@ Las pruebas unitarias cubren manos libres, pellizco fuera, entrada ya pellizcada
 
 Las pruebas Chromium usan el motor real y landmarks sintéticos para agarre/arrastre/rotación; verifican también 1800 segmentos en una llamada de dibujo, borrado y PNG. No son pruebas de gestos humanos con webcam.
 
-Verificación del 17 de noviembre de 2026: 27 pruebas unitarias aprobadas, compilación completa con TypeScript y assets correcta; pruebas Chromium de contacto, arrastre, rotación, conservación al soltar, dibujo y PNG aprobadas. MediaPipe detectó realmente dos manos sobre una cámara virtual alimentada con una imagen oficial estática; se verificaron los cuatro modos, reinicio del detector y cierre de tracks sin excepciones. No se probaron gestos dinámicos con webcam física ni rendimiento en la laptop del usuario. Vite conserva un aviso de tamaño del paquete principal, sin errores de compilación.
+Verificación del 17 de noviembre de 2026: 30 pruebas unitarias aprobadas, compilación completa con TypeScript y assets correcta; pruebas Chromium de contacto, arrastre, rotación, conservación al soltar, dibujo y PNG aprobadas. MediaPipe detectó realmente dos manos sobre una cámara virtual alimentada con una imagen oficial estática; se verificaron los cuatro modos, reinicio del detector y cierre de tracks sin excepciones. No se probaron gestos dinámicos con webcam física ni rendimiento en la laptop del usuario. Vite conserva un aviso de tamaño del paquete principal, sin errores de compilación.
 
 ### Checklist con cámara física pendiente
 
@@ -94,3 +94,7 @@ Verificación del 17 de noviembre de 2026: 27 pruebas unitarias aprobadas, compi
 ## Publicación
 
 El workflow `.github/workflows/pages.yml` prueba, compila y despliega `dist/` al actualizar `main`. Incluye modelo y WASM. En GitHub, Settings → Pages → Source debe usar GitHub Actions. Dirección prevista: https://yudmernp-cmd.github.io/HOLOG3D/ . Un push no confirma por sí solo que el despliegue haya terminado; comprueba el workflow verde.
+
+### Ajuste V 2.1 AGARRE
+
+El holograma mantiene una opacidad de 0.12 en reposo, 0.17 al aproximarse y 0.22 durante el agarre. El contacto real previo se recuerda durante 250 ms para cerrar el pellizco: se permite un desplazamiento del índice de hasta 24 px si sigue dentro del halo próximo a la geometría. Acercarse sin haber tocado no arma un agarre. La pantalla indica inmediatamente «Contacto: une índice y pulgar» y «AGARRADO»; tocar sin pellizcar solo prepara la selección. Pruebas nuevas cubren cierre del pellizco cerca del borde, rechazo de contacto expirado/lejos, inferencia lenta recién recibida y transparencia durante el agarre.

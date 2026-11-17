@@ -9,6 +9,7 @@ export type Contact = {
   pinch: boolean;
   hit: boolean;
   near: boolean;
+  observedAt?: number;
 };
 type Grip = { start: Vector3; current: Vector3; seen: number };
 export function arcball(
@@ -31,6 +32,7 @@ export class InteractionController {
   scale = 1;
   grips = new Map<string, Grip>();
   private previousPinch = new Map<string, boolean>();
+  private touches = new Map<string, {x: number; y: number; time: number}>();
   private lastSeen = new Map<string, number>();
   private origin = new Vector3();
   private orientation = new Quaternion();
@@ -56,6 +58,7 @@ export class InteractionController {
   }
   cancel() {
     this.grips.clear();
+    this.touches.clear();
     this.state = "RELEASE";
     this.suspended = false;
     // A held pinch must be opened before grabbing after a context change.
@@ -79,6 +82,7 @@ export class InteractionController {
     for (const [id, seen] of this.lastSeen) {
       if (now - seen > 1500 && !this.grips.has(id)) {
         this.lastSeen.delete(id);
+        this.touches.delete(id);
         this.previousPinch.delete(id);
       }
     }
@@ -105,11 +109,17 @@ export class InteractionController {
       }
     }
     for (const c of contacts) {
+      if (c.hit && !c.pinch) this.touches.set(c.id, {x: c.x, y: c.y, time: c.observedAt ?? now});
+      const touch = this.touches.get(c.id);
+      // Closing the fingers moves the tip slightly: retain a recent real surface contact,
+      // but require the finger to remain in the narrow geometry proximity halo.
+      const recentContact = !!touch && now - touch.time <= 250 && c.near &&
+        Math.hypot(c.x - touch.x, c.y - touch.y) <= 24;
       if (
         !this.blocked &&
         c.pinch &&
         !this.previousPinch.get(c.id) &&
-        c.hit &&
+        (c.hit || recentContact) &&
         !this.grips.has(c.id)
       ) {
         const p = new Vector3(c.x, c.y, 0);

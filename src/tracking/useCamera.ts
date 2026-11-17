@@ -141,6 +141,7 @@ export function useCamera(
         );
         tracking.current = {
           timestamp: data.timestamp,
+          receivedAt: received,
           width: v.videoWidth,
           height: v.videoHeight,
           hands: data.landmarks.map((points, i) =>
