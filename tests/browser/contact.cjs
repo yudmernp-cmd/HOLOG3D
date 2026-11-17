@@ -79,11 +79,34 @@ const assert = require("node:assert/strict");
       tracking = { ...tracking, hands: [hand(130, true)] };
       for (let i = 0; i < 10; i++) tick();
       const rotation = engine.group.quaternion.y;
+      engine.update({ ...defaults, mode: "particles", quality: 0 });
+      tracking = { ...tracking, hands: [] };
+      for (let i = 0; i < 50; i++) tick();
+      const settledVersion = engine.geometry.attributes.position.version;
+      for (let i = 0; i < 20; i++) tick();
+      const redundantUploads =
+        engine.geometry.attributes.position.version - settledVersion;
+      const pixelRatio = engine.renderer.getPixelRatio();
       engine.dispose();
       canvas.remove();
-      return { outside, acquired, moved, released, stationary, rotation, grabbedOpacity };
+      return {
+        outside,
+        acquired,
+        moved,
+        released,
+        stationary,
+        rotation,
+        grabbedOpacity,
+        redundantUploads,
+        pixelRatio,
+      };
     });
-    assert.ok(result.grabbedOpacity < .23, "hologram remains transparent while grabbed");
+    assert.ok(
+      result.grabbedOpacity < 0.23,
+      "hologram remains transparent while grabbed",
+    );
+    assert.equal(result.redundantUploads, 0);
+    assert.equal(result.pixelRatio, 1);
     assert.equal(result.outside, 0);
     assert.equal(result.acquired, 1);
     assert.ok(result.moved > 79);

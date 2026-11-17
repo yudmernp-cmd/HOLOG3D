@@ -40,9 +40,9 @@ self.onmessage = async ({ data }) => {
         baseOptions: { modelAssetBuffer: bytes, delegate },
         runningMode: "VIDEO",
         numHands: 2,
-        minHandDetectionConfidence: 0.55,
-        minHandPresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
       };
       try {
         detector = await HandLandmarker.createFromOptions(files, options);

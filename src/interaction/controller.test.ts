@@ -81,7 +81,7 @@ describe("direct manipulation scenarios", () => {
     for (let i = 0; i < 10; i++) step([hand("a", -500), hand("b", 500)]);
     expect(c.scale).toBeLessThanOrEqual(2.5);
     const held = c.scale;
-    step([], 300);
+    step([], 600);
     step([]);
     expect(c.scale).toBe(held);
   });
@@ -103,7 +103,7 @@ describe("direct manipulation scenarios", () => {
     expect(c.position.equals(held)).toBe(true);
     step([hand("a", 200)]);
     expect(c.position.equals(held)).toBe(true);
-    step([], 300);
+    step([], 600);
     expect(c.state).toBe("RELEASE");
     step([hand("a", 210)]);
     expect(c.grips.size).toBe(0);
@@ -142,19 +142,62 @@ describe("direct manipulation scenarios", () => {
   });
 });
 
-it('retains surface contact while fingers close near the edge, without jumping', () => {
- const {c,step}=setup();
- step([hand('a',90,0,false)]);
- step([{...hand('a',102,0,true,false),near:true}]);
- expect(c.grips.size).toBe(1); expect(c.position.x).toBe(0);
- step([hand('a',152,0,true,false)]);
- expect(c.position.x).toBeGreaterThan(30);
+it("retains surface contact while fingers close near the edge, without jumping", () => {
+  const { c, step } = setup();
+  step([hand("a", 90, 0, false)]);
+  step([{ ...hand("a", 102, 0, true, false), near: true }]);
+  expect(c.grips.size).toBe(1);
+  expect(c.position.x).toBe(0);
+  step([hand("a", 152, 0, true, false)]);
+  expect(c.position.x).toBeGreaterThan(30);
 });
-it('does not turn proximity alone, expired contact, or far-away pinch into a grab', () => {
- for(const kind of ['hover','expired','far']) {
-  const {c,step}=setup();
-  step([{...hand('a',90,0,false,kind !== 'hover'),near:true}]);
-  step([{...hand('a',kind === 'far' ? 130 : 102,0,true,false),near:true}],kind === 'expired' ? 300 : 50);
-  expect(c.grips.size).toBe(0);
- }
+it("does not turn proximity alone, expired contact, or far-away pinch into a grab", () => {
+  for (const kind of ["hover", "expired", "far"]) {
+    const { c, step } = setup();
+    step([{ ...hand("a", 90, 0, false, kind !== "hover"), near: true }]);
+    step(
+      [
+        {
+          ...hand("a", kind === "far" ? 130 : 102, 0, true, false),
+          near: true,
+        },
+      ],
+      kind === "expired" ? 300 : 50,
+    );
+    expect(c.grips.size).toBe(0);
+  }
+});
+
+it("keeps both grips through a 400ms occlusion and resumes scaling without a jump", () => {
+  const { c, step } = setup();
+  step([hand("a", -50), hand("b", 50)]);
+  step([hand("a", -60)], 400);
+  expect(c.grips.size).toBe(2);
+  expect(c.scale).toBe(1);
+  expect(c.position.length()).toBe(0);
+  step([hand("a", -60), hand("b", 80)]);
+  expect(c.scale).toBe(1);
+  for (let i = 0; i < 10; i++) step([hand("a", -130), hand("b", 150)]);
+  expect(c.scale).toBeCloseTo(2, 2);
+});
+it("ignores one ambiguous pinch loss during two-hand scaling but honors explicit release", () => {
+  const { c, step } = setup();
+  step([hand("a", -50), hand("b", 50)]);
+  step([hand("a", -50), hand("b", 50, 0, false)]);
+  expect(c.grips.size).toBe(2);
+  expect(c.scale).toBe(1);
+  step([hand("a", -50), hand("b", 50)]);
+  expect(c.grips.size).toBe(2);
+  step([hand("a", -50), { ...hand("b", 50, 0, false), release: true }]);
+  expect(c.grips.size).toBe(1);
+});
+it("recovers from grips initially too close and stabilizes scale at rest", () => {
+  const { c, step } = setup();
+  step([hand("a", 0), hand("b", 10)]);
+  step([hand("a", -25), hand("b", 25)]);
+  expect(c.scale).toBe(1);
+  for (let i = 0; i < 20; i++) step([hand("a", -50), hand("b", 50)]);
+  for (let i = 0; i < 20; i++)
+    step([hand("a", -50 + (i % 2)), hand("b", 50 - (i % 2))]);
+  expect(c.scale).toBeCloseTo(2, 5);
 });

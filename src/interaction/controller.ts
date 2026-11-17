@@ -10,8 +10,14 @@ export type Contact = {
   hit: boolean;
   near: boolean;
   observedAt?: number;
+  release?: boolean;
 };
-type Grip = { start: Vector3; current: Vector3; seen: number };
+type Grip = {
+  start: Vector3;
+  current: Vector3;
+  seen: number;
+  opening?: number;
+};
 export function arcball(
   x: number,
   y: number,
@@ -32,12 +38,16 @@ export class InteractionController {
   scale = 1;
   grips = new Map<string, Grip>();
   private previousPinch = new Map<string, boolean>();
-  private touches = new Map<string, {x: number; y: number; time: number}>();
+  private touches = new Map<string, { x: number; y: number; time: number }>();
   private lastSeen = new Map<string, number>();
   private origin = new Vector3();
   private orientation = new Quaternion();
   private initialScale = 1;
+  private scaleDistance = 0;
   private suspended = false;
+  get trackingPaused() {
+    return this.suspended;
+  }
   private blocked = false;
   private targetPosition = new Vector3();
   private targetRotation = new Quaternion();
@@ -48,7 +58,7 @@ export class InteractionController {
   private zAxis = new Vector3(0, 0, 1);
   constructor(
     public mode: Manipulation = "move",
-    public graceMs = 280,
+    public graceMs = 500,
   ) {}
   reset() {
     this.position.set(0, 0, 0);
@@ -69,6 +79,8 @@ export class InteractionController {
     this.orientation.copy(this.rotation);
     this.initialScale = this.scale;
     for (const grip of this.grips.values()) grip.start.copy(grip.current);
+    const [a, b] = [...this.grips.values()];
+    this.scaleDistance = b ? a.start.distanceTo(b.start) : 0;
   }
   step(
     contacts: Contact[],
@@ -97,9 +109,17 @@ export class InteractionController {
           changed = true;
         } else missing = true;
       } else if (!c.pinch) {
-        this.grips.delete(id);
-        changed = true;
+        grip.opening ??= now;
+        // A clear open hand releases immediately; one ambiguous classification
+        // must not silently turn a two-hand scale into a one-hand translation.
+        if (this.grips.size > 1 && !c.release && now - grip.opening < 120) {
+          missing = true;
+        } else {
+          this.grips.delete(id);
+          changed = true;
+        }
       } else {
+        grip.opening = undefined;
         if (
           Math.hypot(c.x - grip.current.x, c.y - grip.current.y) >
           2.5 / sensitivity
@@ -109,11 +129,15 @@ export class InteractionController {
       }
     }
     for (const c of contacts) {
-      if (c.hit && !c.pinch) this.touches.set(c.id, {x: c.x, y: c.y, time: c.observedAt ?? now});
+      if (c.hit && !c.pinch)
+        this.touches.set(c.id, { x: c.x, y: c.y, time: c.observedAt ?? now });
       const touch = this.touches.get(c.id);
       // Closing the fingers moves the tip slightly: retain a recent real surface contact,
       // but require the finger to remain in the narrow geometry proximity halo.
-      const recentContact = !!touch && now - touch.time <= 250 && c.near &&
+      const recentContact =
+        !!touch &&
+        now - touch.time <= 250 &&
+        c.near &&
         Math.hypot(c.x - touch.x, c.y - touch.y) <= 24;
       if (
         !this.blocked &&
@@ -158,13 +182,19 @@ export class InteractionController {
     if (b) {
       const initial = this.initialVector.subVectors(b.start, a.start),
         current = this.currentVector.subVectors(b.current, a.current);
-      if (initial.length() < 24 || current.length() < 8) return;
-      if (Math.abs(current.length() - initial.length()) > dead * 2)
-        scale = MathUtils.clamp(
-          (this.initialScale * current.length()) / initial.length(),
-          0.3,
-          2.5,
-        );
+      if (current.length() < 8) return;
+      // A very close initial grip becomes usable once the hands separate safely.
+      if (initial.length() < 24) {
+        if (current.length() >= 24) this.rebase();
+        return;
+      }
+      if (Math.abs(current.length() - this.scaleDistance) > dead)
+        this.scaleDistance = current.length();
+      scale = MathUtils.clamp(
+        (this.initialScale * this.scaleDistance) / initial.length(),
+        0.3,
+        2.5,
+      );
       if (this.mode === "combined") {
         const delta = this.delta
           .copy(a.current)

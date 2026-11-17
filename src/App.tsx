@@ -92,6 +92,8 @@ export default function App() {
     gesture: "Sin seguimiento",
     interaction: "IDLE",
   });
+  const [trackingPaused, setTrackingPaused] = useState(false);
+  const [grips, setGrips] = useState(0);
   const [interaction, setInteraction] = useState("IDLE");
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
@@ -117,7 +119,11 @@ export default function App() {
           });
         },
       );
-      instance.onInteraction = setInteraction;
+      instance.onInteraction = (state, count, paused) => {
+        setInteraction(state);
+        setGrips(count);
+        setTrackingPaused(paused);
+      };
       engine.current = instance;
     } catch {
       setError(
@@ -178,7 +184,7 @@ export default function App() {
             className="version"
             title="Base fbe8eba · seguimiento estabilizado"
           >
-            V 2.1 AGARRE
+            V 2.2 ESCALA
           </span>
         </div>
       </header>
@@ -394,14 +400,36 @@ export default function App() {
             <canvas ref={canvas} />
             {(camera.active || demo) && settings.mode !== "draw" && (
               <div className="contact-instruction" role="status">
-                {({
-                  IDLE: demo ? "Pulsa sobre la figura y arrastra" : "Acerca el índice a la figura; después une índice y pulgar",
-                  HOVER: "Casi: coloca el índice sobre la superficie",
-                  CONTACT: demo ? "Sobre la figura: pulsa y arrastra" : "Contacto: une índice y pulgar para agarrar",
-                  GRABBING: "AGARRADO · mueve la mano manteniendo el pellizco",
-                  TRANSFORMING: settings.manipulation === "rotate" ? "AGARRADO · arrastra para rotar" : "AGARRADO · arrastra; dos agarres para escalar",
-                  RELEASE: "Suelto · la figura conserva su posición",
-                } as Record<string, string>)[interaction]}
+                {grips > 0 && (
+                  <div>
+                    {grips}/2 agarres ·{" "}
+                    {trackingPaused
+                      ? "Pausa: vuelve a mostrar las manos sin soltar el pellizco"
+                      : grips === 2
+                        ? "Separa o acerca ambas manos para cambiar el tamaño"
+                        : "Para escalar: pellizca otro punto con la segunda mano"}
+                  </div>
+                )}
+                {
+                  (
+                    {
+                      IDLE: demo
+                        ? "Pulsa sobre la figura y arrastra"
+                        : "Acerca el índice a la figura; después une índice y pulgar",
+                      HOVER: "Casi: coloca el índice sobre la superficie",
+                      CONTACT: demo
+                        ? "Sobre la figura: pulsa y arrastra"
+                        : "Contacto: une índice y pulgar para agarrar",
+                      GRABBING:
+                        "AGARRADO · mueve la mano manteniendo el pellizco",
+                      TRANSFORMING:
+                        settings.manipulation === "rotate"
+                          ? "AGARRADO · arrastra para rotar"
+                          : "AGARRADO · arrastra; dos agarres para escalar",
+                      RELEASE: "Suelto · la figura conserva su posición",
+                    } as Record<string, string>
+                  )[interaction]
+                }
               </div>
             )}
             <div className="stage-top">

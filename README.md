@@ -48,7 +48,7 @@ La posición final no se guarda entre recargas; Reiniciar centra la figura y bor
 - `src/scene/engine.ts`: Three.js, composición, formas, contactos, feedback, dibujo por instancias y calidad adaptativa. Geometrías/materiales se crean al iniciar o cambiar figura, no cada frame.
 - `src/App.tsx`, `src/types.ts` y `src/style.css`: selector contextual, instrucciones, estado y configuración; se conserva la estructura visual existente.
 
-La frescura se mide desde la recepción del resultado: una inferencia lenta recién recibida ya no se descarta por superar 250 ms desde la captura. Tras 500 ms sin resultados nuevos, se considera perdido el seguimiento. Al desaparecer una mano agarrada, se congela la transformación durante hasta 280 ms. Si vuelve, se recalibran las referencias a la transformación conservada; si no vuelve, se libera. No se extrapola velocidad ni se lanza el holograma. Un pellizco mantenido no vuelve a seleccionar automáticamente la misma identidad tras liberar por pérdida.
+La frescura se mide desde la recepción del resultado: una inferencia lenta recién recibida ya no se descarta por superar 250 ms desde la captura. Tras 500 ms sin resultados nuevos, se considera perdido el seguimiento. Al desaparecer una mano agarrada, se congela la transformación durante hasta 500 ms. Si vuelve, se recalibran las referencias a la transformación conservada; si no vuelve, se libera. No se extrapola velocidad ni se lanza el holograma. Un pellizco mantenido no vuelve a seleccionar automáticamente la misma identidad tras liberar por pérdida.
 
 ## Composición y límites
 
@@ -77,7 +77,7 @@ Las pruebas unitarias cubren manos libres, pellizco fuera, entrada ya pellizcada
 
 Las pruebas Chromium usan el motor real y landmarks sintéticos para agarre/arrastre/rotación; verifican también 1800 segmentos en una llamada de dibujo, borrado y PNG. No son pruebas de gestos humanos con webcam.
 
-Verificación del 17 de noviembre de 2026: 30 pruebas unitarias aprobadas, compilación completa con TypeScript y assets correcta; pruebas Chromium de contacto, arrastre, rotación, conservación al soltar, dibujo y PNG aprobadas. MediaPipe detectó realmente dos manos sobre una cámara virtual alimentada con una imagen oficial estática; se verificaron los cuatro modos, reinicio del detector y cierre de tracks sin excepciones. No se probaron gestos dinámicos con webcam física ni rendimiento en la laptop del usuario. Vite conserva un aviso de tamaño del paquete principal, sin errores de compilación.
+Verificación del 17 de noviembre de 2026: 34 pruebas unitarias aprobadas, compilación completa con TypeScript y assets correcta; pruebas Chromium de contacto, arrastre, rotación, conservación al soltar, dibujo y PNG aprobadas. MediaPipe detectó realmente dos manos sobre una cámara virtual alimentada con una imagen oficial estática; se verificaron los cuatro modos, reinicio del detector y cierre de tracks sin excepciones. No se probaron gestos dinámicos con webcam física ni rendimiento en la laptop del usuario. Vite conserva un aviso de tamaño del paquete principal, sin errores de compilación.
 
 ### Checklist con cámara física pendiente
 
@@ -98,3 +98,15 @@ El workflow `.github/workflows/pages.yml` prueba, compila y despliega `dist/` al
 ### Ajuste V 2.1 AGARRE
 
 El holograma mantiene una opacidad de 0.12 en reposo, 0.17 al aproximarse y 0.22 durante el agarre. El contacto real previo se recuerda durante 250 ms para cerrar el pellizco: se permite un desplazamiento del índice de hasta 24 px si sigue dentro del halo próximo a la geometría. Acercarse sin haber tocado no arma un agarre. La pantalla indica inmediatamente «Contacto: une índice y pulgar» y «AGARRADO»; tocar sin pellizcar solo prepara la selección. Pruebas nuevas cubren cierre del pellizco cerca del borde, rechazo de contacto expirado/lejos, inferencia lenta recién recibida y transparencia durante el agarre.
+
+### Ajuste V 2.2 ESCALA
+
+- Identidades retenidas durante 750 ms; agarres congelados durante hasta 500 ms de ausencia, con recalibración al recuperar la mano para evitar saltos. No se inventan landmarks para una mano oculta.
+- Con dos agarres, una clasificación ambigua de apertura durante menos de 120 ms no cancela la escala. Una palma claramente abierta libera inmediatamente. La interfaz diferencia 1/2 y 2/2 agarres y muestra una pausa al perder seguimiento.
+- Escala con zona muerta sobre la distancia aceptada, conservando el tamaño al temblar. Si los agarres comienzan demasiado juntos, la referencia se establece cuando se separan al menos 24 px, en vez de quedar bloqueada.
+- Umbrales de MediaPipe ajustados de 0.55 a 0.50, manteniendo dos manos y la confirmación temporal del gesto. Esto no garantiza detección ante oclusión, mala luz o manos fuera del encuadre.
+- Sin raycasts para manos que ya sujetan el objeto; sin proyección de esqueletos ocultos; sin actualizaciones/subidas del buffer de partículas tras estabilizar una transición. Pixel ratio limitado a 1 en Bajo y 1.25 en otros perfiles, conservando reducción automática por FPS bajos.
+
+Para probar escala: agarra un punto con cada mano y comprueba **2/2 agarres**. Mantén ambas manos completas, visibles y separadas entre sí; separa/acerca gradualmente. **Dos manos detectadas no equivale a dos agarres**: cada mano debe pellizcar sobre una zona válida. Si indica pausa, mantén el pellizco y vuelve a mostrar la mano. Tras una pérdida prolongada, vuelve a agarrar.
+
+Las nuevas regresiones comprueban oclusión de 400 ms, recuperación de identidad, pellizco ambiguo, inicio con agarres demasiado juntos y estabilidad de escala. La prueba de navegador comprueba cero subidas redundantes del buffer de partículas una vez estabilizado y pixel ratio 1 en calidad Baja. No hay mediciones de FPS en la laptop del usuario.

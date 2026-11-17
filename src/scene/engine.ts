@@ -8,8 +8,10 @@ import { project } from "../tracking/gestures";
 import { shapePositions } from "./shapes";
 export class Engine {
   interaction = new InteractionController();
-  onInteraction: (state: string) => void = () => {};
+  onInteraction: (state: string, grips: number, paused: boolean) => void =
+    () => {};
   private reportedState = "";
+  private morphUntil = 1800;
   surface = new SurfaceContact();
   contactDot = new T.Mesh(
     new T.SphereGeometry(4, 12, 8),
@@ -89,7 +91,9 @@ export class Engine {
       powerPreference: "high-performance",
     });
     this.renderer.setClearColor(0x000000, 0);
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(
+      Math.min(devicePixelRatio, settings.quality === 0 ? 1 : 1.25),
+    );
     this.geometry.setAttribute(
       "position",
       new T.BufferAttribute(this.positions, 3),
@@ -206,6 +210,9 @@ export class Engine {
   }
   update(s: Settings) {
     if (s.quality !== this.settings.quality) {
+      this.renderer.setPixelRatio(
+        Math.min(devicePixelRatio, s.quality === 0 ? 1 : 1.25),
+      );
       this.autoLevel = s.quality;
       this.slow = 0;
     }
@@ -218,6 +225,7 @@ export class Engine {
       this.interaction.cancel();
     this.lastObservation = undefined;
     this.interaction.mode = s.manipulation;
+    this.morphUntil = this.last + 1800;
     this.settings = s;
   }
   clear() {
@@ -248,15 +256,13 @@ export class Engine {
     this.last = now;
     const s = this.settings;
     const data = this.tracking();
-    const hands =
-      !trackingIsFresh(data, now)
-        ? this.emptyHands
-        : data.hands;
+    const hands = !trackingIsFresh(data, now) ? this.emptyHands : data.hands;
     const hand = hands[0];
     const mode = s.mode;
     const quality = Math.min(s.quality, this.autoLevel);
     if (this.lastShape !== s.shape) {
       this.lastShape = s.shape;
+      this.morphUntil = now + 1800;
       this.target = shapePositions(s.shape, 15000);
       this.hologram.geometry.dispose();
       this.wire.geometry.dispose();
@@ -319,6 +325,7 @@ export class Engine {
           x: q.x,
           y: q.y,
           pinch: h.gesture === "pinch",
+          release: h.gesture === "open",
           proximity: T.MathUtils.clamp(h.size * this.height * 0.12, 5, 14),
         };
       });
@@ -327,9 +334,14 @@ export class Engine {
           id: "mouse",
           ...this.pointer,
           pinch: this.pointer.down,
+          release: !this.pointer.down,
           proximity: 8,
         });
       for (const input of inputs) {
+        if (this.interaction.grips.has(input.id) && input.pinch) {
+          this.contacts.push({ ...input, hit: false, near: false });
+          continue;
+        }
         this.surface.probe(
           input.x,
           input.y,
@@ -361,9 +373,14 @@ export class Engine {
         this.height,
         s.sensitivity,
       );
-    if (this.reportedState !== this.interaction.state) {
-      this.reportedState = this.interaction.state;
-      this.onInteraction(this.reportedState);
+    const report = `${this.interaction.state}:${this.interaction.grips.size}:${this.interaction.trackingPaused}`;
+    if (this.reportedState !== report) {
+      this.reportedState = report;
+      this.onInteraction(
+        this.interaction.state,
+        this.interaction.grips.size,
+        this.interaction.trackingPaused,
+      );
     }
     this.group.position.copy(this.interaction.position);
     this.group.quaternion.copy(this.interaction.rotation);
@@ -410,7 +427,9 @@ export class Engine {
       this.beam.geometry.attributes.position.needsUpdate = true;
       (this.beam.material as T.LineBasicMaterial).color.copy(color);
     }
-    if (this.points.visible)
+    const updateParticles =
+      this.points.visible && (energy || now < this.morphUntil);
+    if (updateParticles)
       for (let i = 0; i < count; i++) {
         const j = i * 3;
         for (let k = 0; k < 3; k++) {
@@ -429,8 +448,7 @@ export class Engine {
           this.positions[j + k] += (target - this.positions[j + k]) * smoothing;
         }
       }
-    if (this.points.visible)
-      this.geometry.attributes.position.needsUpdate = true;
+    if (updateParticles) this.geometry.attributes.position.needsUpdate = true;
     this.rings.forEach((ring, i) => {
       ring.visible = energy && (quality > 0 || i < 2);
       ring.rotation.z += dt * (0.1 + i * 0.08) * (1 + (hand?.speed ?? 0));
@@ -441,7 +459,7 @@ export class Engine {
     });
     let n = 0,
       l = 0;
-    for (const h of hands) {
+    for (const h of s.landmarks ? hands : this.emptyHands) {
       const projected = h.points.map((q) =>
         project(q, data.width, data.height, this.width, this.height, s.mirror),
       );

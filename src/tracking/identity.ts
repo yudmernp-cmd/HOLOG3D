@@ -5,7 +5,7 @@ export class HandIdentity {
     [];
   private serial = 0;
   assign(points: Point[][], labels: string[], now: number) {
-    this.tracks = this.tracks.filter((t) => now - t.time < 350);
+    this.tracks = this.tracks.filter((t) => now - t.time < 750);
     const candidates: { indices: number[]; cost: number }[] = [];
     const search = (indices: number[], cost: number) => {
       const i = indices.length;
