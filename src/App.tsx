@@ -26,30 +26,20 @@ import {
 } from "./types";
 import { useCamera } from "./tracking/useCamera";
 import { Engine } from "./scene/engine";
-import { parsePreferences, serializePreferences } from "./state/preferences";
-import type { SpatialState } from "./scene/spatial";
-import { videoTransform } from "./tracking/orientation";
 function restore(): Settings {
   try {
-    return parsePreferences(localStorage.getItem("holomotion"));
+    const v = JSON.parse(localStorage.getItem("holomotion") ?? "null");
+    if (!v) return defaults;
+    return {
+      ...defaults,
+      color: /^#[0-9a-f]{6}$/i.test(v.color) ? v.color : defaults.color,
+      quality: [0, 1, 2].includes(v.quality) ? v.quality : 1,
+      mirror: typeof v.mirror === "boolean" ? v.mirror : true,
+    };
   } catch {
-    return { ...defaults };
+    return defaults;
   }
 }
-const spatialLabels: Record<SpatialState, string> = {
-  held: "Suspendido · giro activo",
-  arming: "Aro al alcance",
-  following: "Moviendo objeto",
-  rotating: "Rotación manual",
-  scaling: "Ajustando tamaño",
-};
-const spatialHints: Record<SpatialState, string> = {
-  held: "Acerca el índice al aro cian y pellizca para agarrar.",
-  arming: "Junta índice y pulgar ahora. Al agarrar verás «Moviendo objeto».",
-  following: "Mantén el pellizco para mover. Suelta para fijar.",
-  rotating: "Recorre el aro violeta. Suelta para recuperar el giro.",
-  scaling: "Separa o acerca las manos. Suelta para fijar el tamaño.",
-};
 const modes: { id: Mode; title: string; caption: string; icon: typeof Atom }[] =
   [
     {
@@ -101,10 +91,6 @@ export default function App() {
     hands: 0,
     gesture: "Sin seguimiento",
   });
-  const [space, setSpace] = useState<{
-    state: SpatialState;
-    calibrated: boolean;
-  }>({ state: "held", calibrated: false });
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
   const [demo, setDemo] = useState(false);
@@ -127,7 +113,6 @@ export default function App() {
             gesture: hands[0]?.gesture ?? "Sin seguimiento",
           });
         },
-        (state, calibrated) => setSpace({ state, calibrated }),
       );
       engine.current = instance;
     } catch {
@@ -153,7 +138,7 @@ export default function App() {
   useEffect(() => {
     engine.current?.update(settings);
     try {
-      localStorage.setItem("holomotion", serializePreferences(settings));
+      localStorage.setItem("holomotion", JSON.stringify(settings));
     } catch {}
   }, [settings]);
   async function fullscreen() {
@@ -185,7 +170,12 @@ export default function App() {
           <button onClick={() => setHelp(true)}>
             <HelpCircle size={16} /> Guía de gestos
           </button>
-          <span className="version">V 1.3.1</span>
+          <span
+            className="version"
+            title="Base fbe8eba · seguimiento estabilizado"
+          >
+            V 1.0-P
+          </span>
         </div>
       </header>
       <main>
@@ -242,7 +232,6 @@ export default function App() {
                 ).map((s, i) => (
                   <button
                     className={settings.shape === s ? "active" : ""}
-                    aria-label={`Figura ${s}`}
                     onClick={() => change("shape", s)}
                     key={s}
                   >
@@ -372,23 +361,17 @@ export default function App() {
               ref={video}
               playsInline
               muted
+              className={settings.mirror ? "mirrored" : ""}
               style={{
-                opacity: camera.active && settings.cameraVisible ? 0.96 : 0,
-                transform: videoTransform(settings.mirror),
+                opacity: camera.active && settings.cameraVisible ? 0.48 : 0,
               }}
             />
-            <div
-              className="grid-floor"
-              hidden={camera.active && settings.cameraVisible}
-            />
+            <div className="grid-floor" />
             <canvas ref={canvas} />
             <div className="stage-top">
               <span className="scene-tag">
                 <i />
                 {demo ? "EXPLORACIÓN CON RATÓN" : "HOLOMOTION ENGINE"}
-                <span className="orientation-chip">
-                  {settings.mirror ? "DERECHA → DERECHA" : "VISTA DE CÁMARA"}
-                </span>
               </span>
               <div className="stage-buttons">
                 <button
@@ -425,20 +408,6 @@ export default function App() {
                 </button>
               </div>
             )}
-            {(camera.active || demo) && settings.mode !== "draw" && (
-              <div
-                className="spatial-hud"
-                data-state={space.state}
-                role="status"
-              >
-                <strong>{spatialLabels[space.state]}</strong>
-                <small>
-                  {demo
-                    ? "Acerca el cursor al aro y mantén pulsado para agarrar."
-                    : spatialHints[space.state]}
-                </small>
-              </div>
-            )}
             {camera.loading && (
               <div className="loading">
                 <span className="spinner" />
@@ -454,7 +423,7 @@ export default function App() {
             <div className="stage-bottom">
               <div>
                 <span className="coordinate">X / Y / Z</span>
-                <small>CÁMARA FIJA · PROFUNDIDAD ESTIMADA</small>
+                <small>PROFUNDIDAD VIRTUAL</small>
               </div>
               <div className="tracking-pill">
                 <Hand size={16} />
@@ -492,14 +461,11 @@ export default function App() {
                 </button>
               )}
               <button
-                title="Invertir izquierda/derecha"
-                aria-label="Invertir izquierda/derecha"
-                aria-pressed={settings.mirror}
+                title="Modo espejo"
                 className={settings.mirror ? "enabled" : ""}
                 onClick={() => change("mirror", !settings.mirror)}
               >
                 <ScanLine size={16} />
-                <span>Invertir izquierda/derecha</span>
               </button>
               <button
                 title="Mostrar u ocultar cámara"
@@ -529,10 +495,10 @@ export default function App() {
           </div>
           <div className="gesture-cards">
             {[
-              ["☝", "Acerca el índice", "El aro se ilumina"],
-              ["✊", "Cierra el puño", "Fija posición; sigue girando"],
-              ["🤏", "Haz un pellizco", "Agarrar o dibujar"],
-              ["↔", "Dos pellizcos en el aro", "Ajusta el tamaño"],
+              ["✋", "Abre tu mano", "Expande el universo"],
+              ["✊", "Cierra el puño", "Concentra la energía"],
+              ["🤏", "Haz un pellizco", "Selecciona o dibuja"],
+              ["↔", "Separa tus manos", "Cambia la escala"],
             ].map(([icon, title, desc]) => (
               <div key={title}>
                 <span>{icon}</span>
@@ -581,32 +547,23 @@ export default function App() {
             </p>
             <ol>
               <li>
-                El objeto gira en el centro sin seguir automáticamente tus
-                manos. No necesitas calibrar.
+                Abre la palma para expandir. Cierra el puño para concentrar.
+              </li>
+              <li>Mueve la palma para trasladar; gira la muñeca para rotar.</li>
+              <li>Separa o acerca dos manos para cambiar la escala.</li>
+              <li>
+                En Dibujo, une pulgar e índice y mueve el índice. Suelta para
+                terminar el trazo.
               </li>
               <li>
-                Acerca el índice al aro cian: se ilumina. Pellizca sobre él y
-                mueve la mano para trasladar el objeto.
-              </li>
-              <li>
-                Suelta o cierra el puño para dejarlo suspendido y girando.
-              </li>
-              <li>
-                Pellizca sobre el aro violeta y recórrelo para girar
-                manualmente. Al soltar, el giro automático vuelve suavemente.
-              </li>
-              <li>
-                Agarra el aro cian con un pellizco de cada mano. Separa para
-                agrandar y acerca para reducir. Suelta para fijar.
-              </li>
-              <li>
-                En Dibujo, pellizca para trazar. En modo ratón, pulsa sobre un
-                aro y arrastra.
+                En Hologramas, elige una figura y pellizca para girarla un
+                octavo de vuelta.
               </li>
             </ol>
             <p>
-              El contacto se comprueba en la imagen, no en centímetros reales.
-              Puedes invertir izquierda/derecha con el botón de orientación.
+              Ratón: mueve para desplazar; mantén pulsado para dibujar.
+              Reiniciar borra los trazos. PNG exporta solo los gráficos, sin
+              cámara. La profundidad es una estimación visual.
             </p>
             <button className="primary" onClick={() => setHelp(false)}>
               Entendido, a crear <ChevronRight size={16} />

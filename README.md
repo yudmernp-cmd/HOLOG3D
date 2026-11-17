@@ -18,21 +18,18 @@ La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial 
 
 ## Uso
 
-- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. La vista predeterminada sigue tus movimientos: tu derecha corresponde a la derecha de la pantalla (etiqueta **DERECHA → DERECHA**). Una cámara que te mira de frente capta ese movimiento hacia la izquierda del sensor, por lo que se aplica una única inversión horizontal al video y a las coordenadas. La antigua opción **IMAGEN DIRECTA** se migra automáticamente. **Invertir izquierda/derecha** cambia entre esa vista y **VISTA DE CÁMARA**, y recuerda la elección. Los objetos y los trazos cambian junto con el video.
-- **Partículas:** siete figuras interpoladas con giro continuo. El aro cian se agarra con un pellizco para mover; el puño o soltar fija posición y tamaño sin detener el giro.
-- **Hologramas:** selecciona una figura en el panel. Los aros controlan traslado, rotación y escala con dos manos.
+- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. El video se muestra en espejo por defecto; el botón espejo también transforma los gráficos.
+- **Partículas:** siete figuras interpoladas. Palma abierta expande, puño concentra, palma desplaza, muñeca rota y distancia entre dos manos escala.
+- **Hologramas:** selecciona una figura en el panel; los mismos movimientos la manipulan. Cada inicio de pellizco produce un giro discreto de 45° (con enfriamiento).
 - **Dibujo:** une índice y pulgar para trazar con el índice. Suelta para separar trazos. Configura color y grosor; reinicia para borrar. Se limita a 1800 segmentos para acotar memoria. PNG guarda gráficos transparentes, sin video.
 - **Energía:** vórtice, ondas y anillos responden a velocidad y dirección de la palma. No incluye un simulador físico.
-- **Ratón:** demostración explícita, sin detección simulada. Pulsa sobre el aro cian para trasladar o el violeta para rotar; en Dibujo mantén pulsado para trazar.
+- **Ratón:** demostración explícita, sin detección simulada. Mueve para trasladar y mantén pulsado para dibujar.
 - Usa los botones de vista para ocultar la cámara o controles, mostrar puntos, reiniciar, exportar y entrar en pantalla completa. La guía explica los gestos.
 
 ## Arquitectura y decisiones
 
 - `tracking/useCamera.ts`: permisos, stream, carga local de MediaPipe, detección VIDEO hasta 20 Hz, limpieza y errores. Inferencia en un Web Worker independiente, con GPU y alternativa CPU si la inicialización GPU falla. Solo se transfiere un fotograma pendiente; la frecuencia se adapta a la duración de inferencia, sin acumular imágenes.
 - `tracking/gestures.ts`: estados por mano, medidas normalizadas según palma y relación de aspecto, suavizado temporal, histéresis de pellizco, eventos de inicio y expiración de historial.
-- `scene/spatial.ts`: prueba de contacto sobre aros, agarre por inicio de pellizco, traslado con offset, escala de dos manos, rotación y liberación segura.
-- `scene/spatialCue.ts`: aro de referencia visual y señal de control activo o posición fijada.
-- `state/preferences.ts`: migración versionada de la orientación de cámara.
 - `scene/shapes.ts`: posiciones precomputadas para BufferGeometry.
 - `scene/engine.ts`: renderizador transparente, cámara virtual, partículas, objetos, trazos y energía; un único requestAnimationFrame. Materiales y geometrías persistentes; los trazos se agrupan en un InstancedMesh de hasta 1800 segmentos, con una sola llamada de dibujo.
 - `App.tsx`: controles y estado. Preferencias de color, calidad y espejo restauradas desde localStorage.
@@ -46,7 +43,7 @@ Se liberan stream, detector, RAF, ResizeObserver, geometrías y materiales al de
 ## Validación manual con cámara
 
 1. Probar permiso aceptado y denegado, cámara ocupada y desconexión.
-2. Verificar los 21 puntos de cada una de dos manos, ambas orientaciones y ventanas vertical/horizontal. Moviendo la mano hacia tu derecha, comprueba que la imagen y el objeto se desplazan a la derecha con **DERECHA → DERECHA**.
+2. Verificar los 21 puntos de cada una de dos manos, espejo activado/desactivado y ventanas vertical/horizontal.
 3. Probar apertura, puño, pellizco sostenido, liberación, movimiento, rotación y escala de dos manos.
 4. Cambiar los cuatro modos, dibujar trazos separados y descargar PNG.
 5. Desactivar cámara, reactivar, ocultar controles, pantalla completa y comprobar liberación del indicador de cámara al salir.
@@ -60,7 +57,7 @@ Verificado el 16 de noviembre de 2026:
 
 - `npm ci --cache /tmp/holomotion-npm`: instalación reproducible y descarga del modelo oficial completadas.
 - `npm run build`: recursos de visión presentes, TypeScript y compilación de producción correctos.
-- `npm test`: 24 pruebas aprobadas de gestos, proyección, orientación, migración de preferencias y control espacial.
+- `npm test`: 13 pruebas aprobadas de gestos, proyección, figuras y estabilidad del seguimiento.
 - Chromium con WebGL software: cuatro modos, ratón, guía, exportación PNG, controles inmersivos y vista móvil sin desbordamiento; sin excepciones de JavaScript.
 - MediaPipe ejecutado realmente en Chromium sobre una cámara de prueba alimentada con la imagen oficial `https://storage.googleapis.com/mediapipe-assets/right_hands.jpg`: **dos manos detectadas**, sin sustituir ni simular los resultados del detector.
 - Cambio entre los cuatro modos con seguimiento activo, desactivación/reactivación del detector y comprobación de que los tracks de cámara terminan correctamente.
@@ -91,27 +88,16 @@ El renderizador solicita gráficos de alto rendimiento, omite actualizaciones de
 
 Verificación de la corrección: comparación de ocho segundos en Chromium con cámara virtual de dos manos, misma ventana (1280×900) y gráficos SwiftShader. Antes: 11 FPS, p95 entre fotogramas 117 ms, 87 tareas largas y 7844 ms acumulados en ellas. Después: 32 FPS, p95 50 ms, una tarea larga de 50 ms. No son resultados de una RTX 3050 ni garantías para otros equipos.
 
-Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG; también orientación y persistencia, contacto con aros, rotación manual, puño con giro continuo, recuperación sin saltos, pérdida de seguimiento, reflejo coherente de la escena y diseño móvil. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
+Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
 
-### Manipulación mediante aros · V 1.3
+## Base recuperada: fbe8eba · V 1.0-P
 
-El objeto aparece centrado y gira. No sigue una palma abierta ni requiere calibración.
+Esta versión recupera la interacción del commit `fbe8eba` solicitado: movimiento directo con la mano, apertura para expandir, puño para concentrar, escala por separación de manos y dibujo por pellizco. Conserva el worker de MediaPipe y el dibujo por instancias. No incluye los controles por aros ni la calibración obligatoria añadidos después.
 
-- Acerca el índice a un aro: se resalta y aparecen puntos de contacto.
-- Pellizca sobre el aro cian para agarrarlo. Mantén el pellizco y arrastra para trasladar sin saltos.
-- Pellizca sobre el aro violeta y recórrelo para rotar. El giro automático se pausa durante la rotación manual y se recupera suavemente al soltar.
-- Agarra el aro cian con ambas manos: separarlas aumenta el tamaño y acercarlas lo reduce. Se conserva la posición y se admite un rango de 0,35× a 3×. Los controles mantienen un tamaño accesible al ampliar mucho el objeto.
-- Soltar, cerrar el puño o perder una mano activa fija el objeto. Para volver a agarrar hay que iniciar un nuevo pellizco sobre el aro; no basta pasar por él pellizcando desde fuera.
-- El modo ratón permite probar traslado y rotación pulsando sobre los aros. Dibujo conserva el pellizco para trazar.
+Los únicos ajustes funcionales respecto a esa base están en el seguimiento:
 
-El contacto es una coincidencia de coordenadas en la imagen, no una medición física de distancia. La perspectiva virtual se conserva y la profundidad permanece estable durante la manipulación. No hay oclusión física ni reconstrucción de la habitación.
+- Filtro One Euro sobre los 21 landmarks: estabiliza los movimientos pequeños y responde más rápido cuando el movimiento es intencional. También estabiliza el índice usado para dibujar.
+- Histéresis en la extensión de los dedos y confirmación breve de los cambios de gesto, para que una sola observación dudosa no active un puño o un pellizco. Separar claramente los dedos termina el pellizco inmediatamente.
+- Reinicio de filtros al perder el seguimiento o cambiar la relación de aspecto; ángulo de muñeca continuo al cruzar ±180°.
 
-### Orientación V 1.2
-
-La preferencia versionada guarda `cameraOrientation: "user" | "camera"`, en lugar del ambiguo booleano antiguo. Las sesiones V 1.1 con **IMAGEN DIRECTA** se migran a la vista que sigue al usuario; color y calidad se conservan. Las elecciones realizadas con el nuevo botón persisten. MediaPipe sigue recibiendo fotogramas sin modificar; `tracking/orientation.ts` centraliza la inversión aplicada al video, puntos y control espacial para evitar una doble inversión.
-
-La prueba `tests/browser/orientation.cjs` usa un video sintético asimétrico, captura sus píxeles realmente mostrados y compara su ubicación con la proyección de los landmarks. Verifica dirección derecha/izquierda, alineación, migración, cambio de orientación y persistencia. No simula una detección de manos ni sustituye la comprobación con una webcam física.
-
-### Agarre tolerante · V 1.3.1
-
-Coloca el índice sobre el aro cian, junta índice y pulgar y desplaza la mano manteniendo el pellizco. El estado debe cambiar a **Moviendo objeto**. Se recuerda el contacto durante 450 ms para permitir que el dedo se desplace un poco al cerrar el pellizco; los agarres lejos del aro o con un contacto antiguo siguen rechazándose. Una clasificación neutral de hasta 150 ms congela brevemente el objeto sin soltarlo. Abrir la mano, cerrar el puño o perder el seguimiento lo libera.
+Las pruebas con trayectorias sintéticas comprueban una reducción de más de la mitad del ruido alternante usado en la prueba, respuesta al movimiento en dos muestras y rechazo de gestos falsos de un fotograma. Estos resultados no garantizan precisión física ni sustituyen una comprobación con webcam en distintas condiciones de luz.

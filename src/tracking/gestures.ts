@@ -1,9 +1,20 @@
 import type { Hand, Point } from "../types";
-import { displayX } from "./orientation";
+import { LandmarkFilter } from "./smoothing";
 const distance = (a: Point, b: Point) =>
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+type Gesture = Hand["gesture"];
+type History = {
+  hand: Hand;
+  time: number;
+  aspect: number;
+  filters: LandmarkFilter[];
+  fingers: boolean[];
+  candidate: Gesture;
+  since: number;
+  samples: number;
+};
 export class GestureRecognizer {
-  private previous = new Map<string, { hand: Hand; time: number }>();
+  private previous = new Map<string, History>();
   reset() {
     this.previous.clear();
   }
@@ -15,7 +26,13 @@ export class GestureRecognizer {
     aspect = 1,
   ): Hand {
     const old = this.previous.get(id);
-    const valid = old && time - old.time < 250 ? old : undefined;
+    const valid =
+      old && time > old.time && time - old.time < 350 && aspect === old.aspect
+        ? old
+        : undefined;
+    const dt = valid ? Math.max(0.001, (time - valid.time) / 1000) : 0.05;
+    // Classify raw geometry, then stabilize the decision; filtering the geometry
+    // before classification can leave a phantom pinch after the fingers open.
     const metric = points.map((p) => ({
       ...p,
       x: p.x * aspect,
@@ -23,49 +40,74 @@ export class GestureRecognizer {
     }));
     const size = Math.max(0.015, distance(metric[0], metric[9]));
     const pinch = distance(metric[4], metric[8]) / size;
-    const extended = [8, 12, 16, 20].filter(
-      (t) =>
-        distance(metric[t], metric[0]) >
-        distance(metric[t - 2], metric[0]) * 1.18,
-    ).length;
+    const fingers = [8, 12, 16, 20].map((tip, index) => {
+      const ratio =
+        distance(metric[tip], metric[0]) /
+        Math.max(0.001, distance(metric[tip - 2], metric[0]));
+      return ratio > (valid ? (valid.fingers[index] ? 1.1 : 1.24) : 1.18);
+    });
+    const extended = fingers.filter(Boolean).length;
     const threshold = 0.32 * sensitivity;
-    // Folded fingers mean a fist even when thumb and index happen to touch.
-    const gesture: Hand["gesture"] =
-      extended === 0 && distance(metric[8], metric[0]) < size * 1.2
-        ? "fist"
-        : pinch <
-            (valid?.hand.gesture === "pinch" ? threshold * 1.4 : threshold)
-          ? "pinch"
-          : extended === 4
-            ? "open"
-            : extended === 0
-              ? "fist"
-              : "neutral";
-    const raw = {
-      x: (points[0].x + points[9].x) / 2,
-      y: (points[0].y + points[9].y) / 2,
-      z: points[9].z,
+    const candidate: Gesture =
+      pinch < (valid?.hand.gesture === "pinch" ? threshold * 1.4 : threshold)
+        ? "pinch"
+        : extended === 4
+          ? "open"
+          : extended === 0
+            ? "fist"
+            : "neutral";
+    const since = valid?.candidate === candidate ? valid.since : time;
+    const samples = valid?.candidate === candidate ? valid.samples + 1 : 1;
+    const clearPinchRelease =
+      valid?.hand.gesture === "pinch" && pinch > threshold * 1.8;
+    const gesture =
+      !valid ||
+      candidate === valid.hand.gesture ||
+      clearPinchRelease ||
+      (samples >= 2 && time - since >= 35)
+        ? candidate
+        : valid.hand.gesture;
+    const filters =
+      valid?.filters ?? points.map((p) => new LandmarkFilter(p, aspect));
+    const smooth = valid
+      ? points.map((p, i) => filters[i].update(p, dt))
+      : points.map((p) => ({ ...p }));
+    const center = {
+      x: (smooth[0].x + smooth[9].x) / 2,
+      y: (smooth[0].y + smooth[9].y) / 2,
+      z: smooth[9].z,
     };
-    const dt = valid ? Math.max(0.001, (time - valid.time) / 1000) : 0.033;
-    const alpha = 1 - Math.exp(-dt * 15);
-    const center = valid
-      ? {
-          x: valid.hand.center.x + (raw.x - valid.hand.center.x) * alpha,
-          y: valid.hand.center.y + (raw.y - valid.hand.center.y) * alpha,
-          z: raw.z,
-        }
-      : raw;
+    const rawAngle = Math.atan2(
+      smooth[5].y - smooth[17].y,
+      (smooth[5].x - smooth[17].x) * aspect,
+    );
+    const angle = valid
+      ? valid.hand.angle +
+        Math.atan2(
+          Math.sin(rawAngle - valid.hand.angle),
+          Math.cos(rawAngle - valid.hand.angle),
+        )
+      : rawAngle;
     const hand: Hand = {
       id,
-      points,
+      points: smooth,
       gesture,
       pinchStart: gesture === "pinch" && valid?.hand.gesture !== "pinch",
       center,
       size,
-      angle: Math.atan2(metric[5].y - metric[17].y, metric[5].x - metric[17].x),
+      angle,
       speed: valid ? Math.min(4, distance(center, valid.hand.center) / dt) : 0,
     };
-    this.previous.set(id, { hand, time });
+    this.previous.set(id, {
+      hand,
+      time,
+      aspect,
+      filters,
+      fingers,
+      candidate,
+      since,
+      samples,
+    });
     return hand;
   }
 }
@@ -80,7 +122,7 @@ export function project(
 ) {
   const scale = Math.min(width / vw, height / vh);
   return {
-    x: (displayX(p.x, mirror) - 0.5) * vw * scale,
+    x: ((mirror ? 1 - p.x : p.x) - 0.5) * vw * scale,
     y: (0.5 - p.y) * vh * scale,
     z: -p.z * vw * scale,
   };
