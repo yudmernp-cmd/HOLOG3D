@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import type { HandLandmarkerResult } from "@mediapipe/tasks-vision";
+import { HandIdentity } from "./identity";
 import { GestureRecognizer } from "./gestures";
 import type { Settings, Tracking } from "../types";
 export function useCamera(
@@ -104,6 +105,7 @@ export function useCamera(
       setLoading(false);
       setStatus("Seguimiento local activo");
       const gestures = new GestureRecognizer();
+      const identities = new HandIdentity();
       let last = -1,
         tick = 0,
         received = performance.now(),
@@ -132,13 +134,19 @@ export function useCamera(
         }
         received = performance.now();
         interval = Math.min(200, Math.max(50, data.duration * 1.25));
+        const ids = identities.assign(
+          data.landmarks,
+          data.handedness.map((h) => h[0]?.categoryName ?? ""),
+          data.timestamp,
+        );
         tracking.current = {
+          timestamp: data.timestamp,
           width: v.videoWidth,
           height: v.videoHeight,
           hands: data.landmarks.map((points, i) =>
             gestures.update(
               points,
-              data.handedness[i]?.[0]?.categoryName ?? String(i),
+              ids[i],
               data.timestamp,
               settings.current.sensitivity,
               v.videoWidth / v.videoHeight,

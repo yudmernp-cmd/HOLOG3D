@@ -90,6 +90,7 @@ export default function App() {
     quality: 1,
     hands: 0,
     gesture: "Sin seguimiento",
+    interaction: "IDLE",
   });
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
@@ -111,6 +112,7 @@ export default function App() {
             quality,
             hands: hands.length,
             gesture: hands[0]?.gesture ?? "Sin seguimiento",
+            interaction: instance.interaction.state,
           });
         },
       );
@@ -174,7 +176,7 @@ export default function App() {
             className="version"
             title="Base fbe8eba · seguimiento estabilizado"
           >
-            V 1.0-P
+            V 2.0 CONTACTO
           </span>
         </div>
       </header>
@@ -215,6 +217,26 @@ export default function App() {
           </div>
           {settings.mode !== "draw" && (
             <>
+              <label htmlFor="manipulation">Manipulación</label>
+              <select
+                id="manipulation"
+                value={settings.manipulation}
+                onChange={(e) =>
+                  change(
+                    "manipulation",
+                    e.target.value as Settings["manipulation"],
+                  )
+                }
+              >
+                <option value="move">Trasladar · dos manos escalan</option>
+                <option value="rotate">Rotar · arcball 3D</option>
+                <option value="combined">Combinar · dos manos</option>
+              </select>
+              <p className="interaction-help">
+                Acerca el índice a la figura y pellizca sobre ella. Arrastra y
+                abre los dedos para soltar. Para escalar, agarra dos puntos
+                distintos.
+              </p>
               <label>
                 Figura <span>✧</span>
               </label>
@@ -363,7 +385,7 @@ export default function App() {
               muted
               className={settings.mirror ? "mirrored" : ""}
               style={{
-                opacity: camera.active && settings.cameraVisible ? 0.48 : 0,
+                opacity: camera.active && settings.cameraVisible ? 0.9 : 0,
               }}
             />
             <div className="grid-floor" />
@@ -495,10 +517,10 @@ export default function App() {
           </div>
           <div className="gesture-cards">
             {[
-              ["✋", "Abre tu mano", "Expande el universo"],
-              ["✊", "Cierra el puño", "Concentra la energía"],
-              ["🤏", "Haz un pellizco", "Selecciona o dibuja"],
-              ["↔", "Separa tus manos", "Cambia la escala"],
+              ["☝", "Toca la figura", "Busca el punto luminoso"],
+              ["🤏", "Pellizca y arrastra", "Agarra sobre la superficie"],
+              ["↻", "Elige Rotar", "Arrastra para orientar"],
+              ["↔", "Dos agarres", "Separa o acerca para escalar"],
             ].map(([icon, title, desc]) => (
               <div key={title}>
                 <span>{icon}</span>
@@ -526,7 +548,18 @@ export default function App() {
                   }[stats.gesture] ?? "")}
             </span>
             <span>
-              CREA SIN LÍMITES <span className="cyan">✧</span>
+              {
+                (
+                  {
+                    IDLE: "SIN CONTACTO",
+                    HOVER: "CERCA",
+                    CONTACT: "CONTACTO · PELLIZCA",
+                    GRABBING: "AGARRADO",
+                    TRANSFORMING: "MANIPULANDO",
+                    RELEASE: "LIBERADO",
+                  } as Record<string, string>
+                )[stats.interaction]
+              }
             </span>
           </footer>
         </section>
@@ -540,30 +573,39 @@ export default function App() {
             aria-label="Guía de gestos"
           >
             <span className="eyebrow">PRIMER CONTACTO</span>
-            <h2>El laboratorio sigue tus manos.</h2>
+            <h2>Toca, agarra y transforma.</h2>
             <p>
               Activa la cámara y coloca una o dos manos dentro del encuadre, con
               buena iluminación.
             </p>
             <ol>
               <li>
-                Abre la palma para expandir. Cierra el puño para concentrar.
-              </li>
-              <li>Mueve la palma para trasladar; gira la muñeca para rotar.</li>
-              <li>Separa o acerca dos manos para cambiar la escala.</li>
-              <li>
-                En Dibujo, une pulgar e índice y mueve el índice. Suelta para
-                terminar el trazo.
+                Acerca el índice a la superficie visible: aparecerá un punto
+                luminoso. Une índice y pulgar sobre la figura para agarrarla.
               </li>
               <li>
-                En Hologramas, elige una figura y pellizca para girarla un
-                octavo de vuelta.
+                En Trasladar, mantén el pellizco y arrastra. Abre los dedos para
+                soltar: la figura conserva su posición.
+              </li>
+              <li>
+                Elige Rotar antes de agarrar. Arrastra sobre la esfera virtual
+                para orientar el objeto en 3D.
+              </li>
+              <li>
+                Agarra dos puntos con ambas manos: separa para ampliar, acerca
+                para reducir. En Combinar también desplazas y giras con ambos
+                agarres.
+              </li>
+              <li>
+                Si pellizcas fuera, abre los dedos y vuelve a intentarlo sobre
+                la figura. En Dibujo, pellizca en cualquier lugar para trazar.
               </li>
             </ol>
             <p>
-              Ratón: mueve para desplazar; mantén pulsado para dibujar.
-              Reiniciar borra los trazos. PNG exporta solo los gráficos, sin
-              cámara. La profundidad es una estimación visual.
+              Ratón: pulsa sobre la figura y arrastra. El selector también
+              permite rotarla. El contacto es una aproximación por proyección,
+              no profundidad física. No hay segmentación: el holograma se
+              compone delante del video. PNG guarda los gráficos sin cámara.
             </p>
             <button className="primary" onClick={() => setHelp(false)}>
               Entendido, a crear <ChevronRight size={16} />

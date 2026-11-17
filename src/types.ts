@@ -20,8 +20,14 @@ export type Hand = {
   size: number;
   speed: number;
 };
-export type Tracking = { hands: Hand[]; width: number; height: number };
+export type Tracking = {
+  timestamp?: number;
+  hands: Hand[];
+  width: number;
+  height: number;
+};
 export type Settings = {
+  manipulation: "move" | "rotate" | "combined";
   mode: Mode;
   shape: Shape;
   color: string;
@@ -34,7 +40,8 @@ export type Settings = {
   landmarks: boolean;
 };
 export const defaults: Settings = {
-  mode: "particles",
+  manipulation: "move",
+  mode: "hologram",
   shape: "Esfera",
   color: "#00d9ff",
   quality: 1,
@@ -43,6 +50,6 @@ export const defaults: Settings = {
   thickness: 3,
   mirror: true,
   cameraVisible: true,
-  landmarks: true,
+  landmarks: false,
 };
 export const counts = [1000, 5000, 15000];

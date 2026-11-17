@@ -25,6 +25,9 @@ export class GestureRecognizer {
     sensitivity = 1,
     aspect = 1,
   ): Hand {
+    for (const [key, history] of this.previous) {
+      if (time - history.time > 1000) this.previous.delete(key);
+    }
     const old = this.previous.get(id);
     const valid =
       old && time > old.time && time - old.time < 350 && aspect === old.aspect

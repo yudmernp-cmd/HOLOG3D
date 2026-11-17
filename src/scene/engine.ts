@@ -1,9 +1,22 @@
 import * as T from "three";
+import { InteractionController, type Contact } from "../interaction/controller";
+import { SurfaceContact } from "../interaction/contact";
 import type { Settings, Tracking } from "../types";
 import { counts } from "../types";
 import { project } from "../tracking/gestures";
 import { shapePositions } from "./shapes";
 export class Engine {
+  interaction = new InteractionController();
+  surface = new SurfaceContact();
+  contactDot = new T.Mesh(
+    new T.SphereGeometry(4, 12, 8),
+    new T.MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
+  );
+  baseRadius = 150;
+  private lastObservation: unknown;
+  private contacts: Contact[] = [];
+  private hadPointer = false;
+  private emptyHands: Tracking["hands"] = [];
   renderer: T.WebGLRenderer;
   scene = new T.Scene();
   camera = new T.PerspectiveCamera(45, 1, 0.1, 5000);
@@ -23,7 +36,6 @@ export class Engine {
   strokeTransform = new T.Object3D();
   strokeDirection = new T.Vector3();
   strokeAxis = new T.Vector3(0, 1, 0);
-  scaleTarget = new T.Vector3();
   color = new T.Color();
   strokeGroup = new T.Group();
   markers: T.Points;
@@ -41,8 +53,6 @@ export class Engine {
   lastShape = "";
   lastPoint: T.Vector3 | null = null;
   drawingHand: string | null = null;
-  wasPinch = false;
-  lastPinchEvent = 0;
   drawCount = 0;
   pointer: { x: number; y: number; down: boolean } | null = null;
   width = 1;
@@ -62,6 +72,7 @@ export class Engine {
     onStats: (fps: number, quality: number) => void,
   ) {
     this.settings = settings;
+    this.interaction.mode = settings.manipulation;
     this.strokes.count = 0;
     this.strokes.frustumCulled = false;
     this.strokes.instanceMatrix.setUsage(T.DynamicDrawUsage);
@@ -81,6 +92,7 @@ export class Engine {
       new T.BufferAttribute(this.positions, 3),
     );
     this.positions.set(this.target);
+    this.geometry.boundingSphere = new T.Sphere(new T.Vector3(), 4);
     this.points = new T.Points(
       this.geometry,
       new T.PointsMaterial({
@@ -95,12 +107,14 @@ export class Engine {
     this.group.add(this.points);
     this.hologram = new T.Mesh(
       new T.IcosahedronGeometry(1, 1),
-      new T.MeshBasicMaterial({
+      new T.MeshPhongMaterial({
         color: settings.color,
+        shininess: 70,
+        specular: 0x67e8f9,
         transparent: true,
-        opacity: 0.09,
-        side: T.DoubleSide,
-        depthWrite: false,
+        opacity: 0.65,
+        side: T.FrontSide,
+        depthWrite: true,
       }),
     );
     this.wire = new T.LineSegments(
@@ -164,11 +178,17 @@ export class Engine {
       }),
     );
     this.scene.add(this.beam);
-    this.scene.add(this.group, this.strokeGroup);
+    const light = new T.DirectionalLight(0xffffff, 2);
+    light.position.set(-300, 400, 700);
+    this.scene.add(new T.AmbientLight(0x8baaff, 1.4), light);
+    this.scene.add(this.group, this.strokeGroup, this.contactDot);
+    this.contactDot.visible = false;
+    this.contactDot.renderOrder = 10;
     this.camera.position.z = 1000;
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas);
     this.resize();
+    this.reset();
     this.raf = requestAnimationFrame(this.animate);
   }
   resize() {
@@ -178,12 +198,23 @@ export class Engine {
     this.camera.aspect = this.width / this.height;
     this.camera.fov = (2 * Math.atan(this.height / 2000) * 180) / Math.PI;
     this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    this.interaction.cancel();
   }
   update(s: Settings) {
     if (s.quality !== this.settings.quality) {
       this.autoLevel = s.quality;
       this.slow = 0;
     }
+    if (
+      s.mode !== this.settings.mode ||
+      s.shape !== this.settings.shape ||
+      s.mirror !== this.settings.mirror ||
+      s.manipulation !== this.settings.manipulation
+    )
+      this.interaction.cancel();
+    this.lastObservation = undefined;
+    this.interaction.mode = s.manipulation;
     this.settings = s;
   }
   clear() {
@@ -195,7 +226,9 @@ export class Engine {
     this.clear();
     this.group.position.set(0, 0, 0);
     this.group.rotation.set(0, 0, 0);
-    this.group.scale.setScalar(150);
+    this.baseRadius = Math.min(this.width, this.height) * 0.23;
+    this.group.scale.setScalar(this.baseRadius);
+    this.interaction.reset();
     this.autoLevel = this.settings.quality;
   }
   export() {
@@ -212,7 +245,10 @@ export class Engine {
     this.last = now;
     const s = this.settings;
     const data = this.tracking();
-    const hands = data.hands;
+    const hands =
+      data.timestamp !== undefined && now - data.timestamp > 250
+        ? this.emptyHands
+        : data.hands;
     const hand = hands[0];
     const mode = s.mode;
     const quality = Math.min(s.quality, this.autoLevel);
@@ -235,7 +271,7 @@ export class Engine {
     }
     const color = this.color.set(s.color);
     (this.points.material as T.PointsMaterial).color.copy(color);
-    (this.hologram.material as T.MeshBasicMaterial).color.copy(color);
+    (this.hologram.material as T.MeshPhongMaterial).color.copy(color);
     (this.wire.material as T.LineBasicMaterial).color.copy(color);
     const count = Math.max(
       100,
@@ -258,29 +294,77 @@ export class Engine {
         ? { x: this.pointer.x, y: this.pointer.y, z: 0 }
         : { x: 0, y: 0, z: 0 };
     const smoothing = 1 - Math.exp(-dt * 8);
-    this.group.position.x += (p.x - this.group.position.x) * smoothing;
-    this.group.position.y += (p.y - this.group.position.y) * smoothing;
-    let scale = Math.min(this.width, this.height) * 0.25;
-    if (hands.length === 2)
-      scale *= T.MathUtils.clamp(
-        Math.hypot(
-          hands[0].center.x - hands[1].center.x,
-          hands[0].center.y - hands[1].center.y,
-        ) * 3,
-        0.4,
-        2.5,
+    // Ray tests follow detector observations, not the renderer refresh rate.
+    if (this.lastObservation !== hands || this.pointer || this.hadPointer) {
+      this.lastObservation = hands;
+      this.hadPointer = !!this.pointer;
+      this.group.updateMatrixWorld(true);
+      this.contacts = [];
+      this.contactDot.visible = false;
+      const object = mode === "hologram" ? this.hologram : this.points;
+      const inputs = (mode === "draw" ? this.emptyHands : hands).map((h) => {
+        const q = project(
+          h.points[8],
+          data.width,
+          data.height,
+          this.width,
+          this.height,
+          s.mirror,
+        );
+        return {
+          id: h.id,
+          x: q.x,
+          y: q.y,
+          pinch: h.gesture === "pinch",
+          proximity: T.MathUtils.clamp(h.size * this.height * 0.12, 5, 14),
+        };
+      });
+      if (mode !== "draw" && !hands.length && this.pointer)
+        inputs.push({
+          id: "mouse",
+          ...this.pointer,
+          pinch: this.pointer.down,
+          proximity: 8,
+        });
+      for (const input of inputs) {
+        this.surface.probe(
+          input.x,
+          input.y,
+          this.width,
+          this.height,
+          this.camera,
+          object,
+          input.proximity,
+        );
+        this.contacts.push({
+          ...input,
+          hit: this.surface.hit,
+          near: this.surface.near,
+        });
+        if (this.surface.near && mode !== "draw") {
+          this.contactDot.position.copy(this.surface.point);
+          this.contactDot.visible = true;
+        }
+      }
+    }
+    if (mode !== "draw")
+      this.interaction.step(
+        this.contacts,
+        now,
+        dt,
+        this.baseRadius,
+        this.width,
+        this.height,
+        s.sensitivity,
       );
-    if (hand?.gesture === "open") scale *= 1.3;
-    if (hand?.gesture === "fist") scale *= 0.45;
-    this.group.scale.lerp(this.scaleTarget.setScalar(scale), smoothing);
-    if (hand) {
-      const angle = (s.mirror ? -1 : 1) * hand.angle;
-      const delta = Math.atan2(
-        Math.sin(angle - this.group.rotation.z),
-        Math.cos(angle - this.group.rotation.z),
-      );
-      this.group.rotation.z += delta * smoothing;
-    } else this.group.rotation.y += dt * 0.12;
+    this.group.position.copy(this.interaction.position);
+    this.group.quaternion.copy(this.interaction.rotation);
+    this.group.scale.setScalar(this.baseRadius * this.interaction.scale);
+    const selected = this.interaction.grips.size > 0;
+    const material = this.hologram.material as T.MeshPhongMaterial;
+    material.opacity +=
+      ((selected ? 0.85 : this.surface.near ? 0.75 : 0.65) - material.opacity) *
+      smoothing;
     const energy = mode === "energy";
     if (hand?.gesture === "open" && this.previousGesture === "fist")
       this.burst = 1;
@@ -353,7 +437,7 @@ export class Engine {
       const projected = h.points.map((q) =>
         project(q, data.width, data.height, this.width, this.height, s.mirror),
       );
-      for (const q of projected) this.markerData.set([q.x, q.y, 5], n++ * 3);
+      for (const q of projected) this.markerData.set([q.x, q.y, 0], n++ * 3);
       for (const chain of [
         [0, 1, 2, 3, 4],
         [0, 5, 6, 7, 8],
@@ -365,7 +449,7 @@ export class Engine {
         for (let i = 1; i < chain.length; i++)
           for (const ix of [chain[i - 1], chain[i]]) {
             const q = projected[ix];
-            if (l < 100) this.lineData.set([q.x, q.y, 4], l++ * 3);
+            if (l < 100) this.lineData.set([q.x, q.y, 0], l++ * 3);
           }
     }
     this.markers.geometry.setDrawRange(0, n);
@@ -374,14 +458,6 @@ export class Engine {
     this.lineGeometry.attributes.position.needsUpdate = true;
     this.markers.visible = this.skeleton.visible = s.landmarks;
     const pinching = hand?.gesture === "pinch" || !!this.pointer?.down;
-    if (
-      mode === "hologram" &&
-      hand?.pinchStart &&
-      now - this.lastPinchEvent > 700
-    ) {
-      this.lastPinchEvent = now;
-      this.hologram.rotation.y += Math.PI / 4;
-    }
     if (mode === "draw" && pinching) {
       const drawingHand = hand?.id ?? "mouse";
       if (drawingHand !== this.drawingHand) this.lastPoint = null;

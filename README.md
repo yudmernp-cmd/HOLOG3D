@@ -1,103 +1,96 @@
-# HoloMotion 3D
+# HoloMotion 3D · contacto virtual
 
-Laboratorio interactivo de gráficos 3D y seguimiento real de manos. React, TypeScript estricto, Vite, Three.js, Tailwind CSS y MediaPipe Hand Landmarker. Sin claves ni servicios comerciales.
+Laboratorio existente en React, TypeScript estricto, Vite, Three.js, Tailwind y MediaPipe Hand Landmarker. El holograma tiene posición, orientación y escala independientes. Aparece centrado y permanece quieto hasta que se agarra sobre su superficie proyectada. No sigue manos libres ni gira solo.
 
-## Inicio
+## Ejecutar
 
-Requisitos: Node.js 22 o 24, npm, navegador moderno con WebGL y cámara opcional. La cámara requiere HTTPS o localhost.
+Node.js 22/24, npm y navegador con WebGL. La cámara requiere HTTPS o localhost.
 
 ```sh
 npm install
 npm run dev
-npm run typecheck
 npm test
+npm run typecheck
 npm run build
 ```
 
-La instalación copia el runtime WASM de MediaPipe y descarga su modelo oficial desde `storage.googleapis.com`. Se sirven desde el mismo origen en ejecución: las imágenes de la webcam no se transmiten ni se graban. Para instalaciones reproducibles usa `npm ci`. Si tu entorno no permite escribir en la caché predeterminada, usa `npm ci --cache /tmp/holomotion-npm`. Para desplegar, sirve `dist/` por HTTPS; incluye los archivos WASM y el modelo generados. La descarga inicial requiere Internet.
+La instalación copia el runtime WASM y descarga el modelo oficial desde `storage.googleapis.com`. Después se sirven desde el mismo origen: los fotogramas de webcam no se transmiten ni graban. `npm ci` permite instalaciones reproducibles. Si faltan recursos, ejecuta `npm run setup:assets`. `build` comprueba modelo y WASM; `build:ui` solo verifica código y no produce una distribución completa con visión.
 
-## Uso
+## Manipulación
 
-- Activa la cámara y acepta el permiso. Muestra la mano completa con luz suficiente. El video se muestra en espejo por defecto; el botón espejo también transforma los gráficos.
-- **Partículas:** siete figuras interpoladas. Palma abierta expande, puño concentra, palma desplaza, muñeca rota y distancia entre dos manos escala.
-- **Hologramas:** selecciona una figura en el panel; los mismos movimientos la manipulan. Cada inicio de pellizco produce un giro discreto de 45° (con enfriamiento).
-- **Dibujo:** une índice y pulgar para trazar con el índice. Suelta para separar trazos. Configura color y grosor; reinicia para borrar. Se limita a 1800 segmentos para acotar memoria. PNG guarda gráficos transparentes, sin video.
-- **Energía:** vórtice, ondas y anillos responden a velocidad y dirección de la palma. No incluye un simulador físico.
-- **Ratón:** demostración explícita, sin detección simulada. Mueve para trasladar y mantén pulsado para dibujar.
-- Usa los botones de vista para ocultar la cámara o controles, mostrar puntos, reiniciar, exportar y entrar en pantalla completa. La guía explica los gestos.
+1. Activa la cámara, muestra la mano completa con buena luz y acerca el índice a una parte visible del holograma. El punto luminoso indica la zona próxima.
+2. **Trasladar:** pellizca sobre la superficie, mantén el pellizco y arrastra. Se conserva el desplazamiento respecto al punto inicial; la figura no salta al dedo. Abre los dedos para soltarla.
+3. **Rotar:** selecciona este control antes de agarrar; pellizca sobre la figura y arrastra. Un arcball virtual convierte el movimiento en un cuaternión 3D. Trasladar no incorpora movimientos de muñeca ni rotaciones accidentales.
+4. **Escalar:** con una mano agarrada, pellizca otro punto de la superficie con la segunda mano. Separarlas amplía y acercarlas reduce. La escala usa `escalaInicial × distanciaActual / distanciaInicial`, con límites 0.3–2.5. El centro permanece fijo en Trasladar y Rotar.
+5. **Combinar:** con dos agarres, el punto medio traslada, la separación escala y la orientación del vector entre manos gira en el plano de pantalla. Con una mano funciona como Trasladar. Para inclinaciones en los otros ejes usa Rotar.
+6. Un pellizco iniciado fuera no selecciona aunque después entre en la figura: abre los dedos y pellizca de nuevo. El halo de proximidad no autoriza por sí solo el agarre. En un toroide, el agujero tampoco es superficie.
 
-## Arquitectura y decisiones
+Sensibilidad ajusta el umbral de pellizco normalizado por el tamaño de la palma y la zona muerta del desplazamiento (2.5 píxeles a 1×). Comienza en 1×; aumenta si cuesta cerrar el agarre, reduce si aparece accidentalmente. El detector emplea umbrales diferentes de entrada/salida y confirmación temporal. Cambiar figura, modo, espejo, tamaño de ventana o herramienta termina el agarre: abre los dedos para volver a agarrar.
 
-- `tracking/useCamera.ts`: permisos, stream, carga local de MediaPipe, detección VIDEO hasta 20 Hz, limpieza y errores. Inferencia en un Web Worker independiente, con GPU y alternativa CPU si la inicialización GPU falla. Solo se transfiere un fotograma pendiente; la frecuencia se adapta a la duración de inferencia, sin acumular imágenes.
-- `tracking/gestures.ts`: estados por mano, medidas normalizadas según palma y relación de aspecto, suavizado temporal, histéresis de pellizco, eventos de inicio y expiración de historial.
-- `scene/shapes.ts`: posiciones precomputadas para BufferGeometry.
-- `scene/engine.ts`: renderizador transparente, cámara virtual, partículas, objetos, trazos y energía; un único requestAnimationFrame. Materiales y geometrías persistentes; los trazos se agrupan en un InstancedMesh de hasta 1800 segmentos, con una sola llamada de dibujo.
-- `App.tsx`: controles y estado. Preferencias de color, calidad y espejo restauradas desde localStorage.
+La posición final no se guarda entre recargas; Reiniciar centra la figura y borra trazos. Color, calidad y espejo se restauran desde localStorage.
 
-El video utiliza `object-fit: contain`; el proyector aplica el mismo ajuste y espejo. La profundidad es virtual/estimada, **no una medición física** a partir de RGB. El dibujo se fija al plano virtual para evitar saltos de profundidad.
+## Funciones conservadas
 
-Calidades: 1000/5000/15000 partículas máximas, moduladas por intensidad. Después de cuatro segundos sostenidos por debajo de 27 FPS se reduce un perfil y el pixel ratio. El perfil bajo limita anillos. No se garantizan FPS: inferencia y WebGL comparten los recursos del dispositivo. Cambia manualmente la calidad para volver a aumentar el límite.
+- Partículas: figuras interpoladas, calidad e intensidad ajustables. El agarre usa intersecciones con puntos visibles (tolerancia de 4 unidades de pantalla), no una esfera invisible que rellene los huecos.
+- Hologramas: geometría continua, iluminación sencilla, líneas y respuesta discreta al contacto. No se deforma al tocarla.
+- Dibujo: pellizco en cualquier posición para dibujar con el índice, color y grosor configurables, hasta 1800 segmentos agrupados en una llamada de dibujo. Suelta para separar trazos.
+- Energía: conserva el vórtice y los anillos animados; estos efectos siguen siendo cosméticos. La transformación global también requiere agarre. Las deformaciones de este modo no se aplican al holograma sólido.
+- Ratón: demostración explícita. Pulsa **sobre** la figura para arrastrar o rotar según la herramienta. Mover el ratón libre no mueve el objeto. En Dibujo, mantén pulsado para trazar.
+- Espejo, cámara visible/oculta, puntos de diagnóstico opcionales, pantalla completa, controles inmersivos, reinicio y PNG. PNG exporta solo gráficos transparentes, sin webcam.
 
-Se liberan stream, detector, RAF, ResizeObserver, geometrías y materiales al desmontar. Los fallos recuperables muestran mensajes. No se implementa grabación de video ni transmisión de imágenes. El PNG exporta únicamente los gráficos, incluso si la cámara es visible.
+## Arquitectura y precisión
 
-## Validación manual con cámara
+- `src/interaction/controller.ts`: máquina IDLE → HOVER/CONTACT → GRABBING → TRANSFORMING → RELEASE. Almacena posición, cuaternión y escala. Cada cambio de número de agarres recalibra las referencias sin saltos. Usa zona muerta, interpolación temporal de transformaciones y límites de escala/centro visible.
+- `src/interaction/contact.ts`: Raycaster sobre la geometría real del holograma, sin incluir sus líneas hijas. Cuatro rayos próximos sirven únicamente para hover. Las pruebas se ejecutan al recibir observaciones del detector, no en cada refresco de pantalla.
+- `src/tracking/identity.ts`: asociación espacial global de hasta dos manos, con apoyo de handedness. Mantiene identidades ante cambios de orden y etiquetas duplicadas. Cruces u oclusiones prolongadas todavía pueden resultar ambiguos.
+- `src/tracking/gestures.ts` y `smoothing.ts`: normalización por palma y aspecto, histéresis de pellizco, confirmación de cambios y filtro One Euro sobre los 21 landmarks.
+- `src/tracking/useCamera.ts` y `public/hand-worker.js`: captura local, inferencia MediaPipe en un worker hasta 20 Hz con una imagen pendiente, GPU si está disponible y CPU como alternativa. No se acumulan frames.
+- `src/scene/engine.ts`: Three.js, composición, formas, contactos, feedback, dibujo por instancias y calidad adaptativa. Geometrías/materiales se crean al iniciar o cambiar figura, no cada frame.
+- `src/App.tsx`, `src/types.ts` y `src/style.css`: selector contextual, instrucciones, estado y configuración; se conserva la estructura visual existente.
 
-1. Probar permiso aceptado y denegado, cámara ocupada y desconexión.
-2. Verificar los 21 puntos de cada una de dos manos, espejo activado/desactivado y ventanas vertical/horizontal.
-3. Probar apertura, puño, pellizco sostenido, liberación, movimiento, rotación y escala de dos manos.
-4. Cambiar los cuatro modos, dibujar trazos separados y descargar PNG.
-5. Desactivar cámara, reactivar, ocultar controles, pantalla completa y comprobar liberación del indicador de cámara al salir.
-6. Medir FPS en hardware integrado en los tres perfiles; comprobar reducción adaptativa.
+Una observación de cámara de más de 250 ms se considera obsoleta. Al desaparecer una mano agarrada, se congela la transformación durante hasta 280 ms. Si vuelve, se recalibran las referencias a la transformación conservada; si no vuelve, se libera. No se extrapola velocidad ni se lanza el holograma. Un pellizco mantenido no vuelve a seleccionar automáticamente la misma identidad tras liberar por pérdida.
 
-Las pruebas automatizadas usan landmarks sintéticos para verificar matemáticas y estados; no sustituyen la validación de la inferencia con una cámara física.
+## Composición y límites
 
-## Estado de verificación en este entorno
+Video y landmarks usan el mismo ajuste `object-fit: contain`, resolución, relación de aspecto y espejo. El espejo se aplica exactamente una vez a cada capa. Los puntos de diagnóstico se dibujan en el plano de pantalla para no introducir errores de perspectiva.
 
-Verificado el 16 de noviembre de 2026:
+**Contacto virtual no equivale a contacto físico 3D.** El Raycaster comprueba coincidencia proyectada con la superficie y el pellizco confirma intención. No se usa la profundidad relativa ruidosa de MediaPipe como distancia métrica. El arrastre trabaja en un plano virtual, y el arcball produce orientación 3D; no existe anclaje a la habitación.
 
-- `npm ci --cache /tmp/holomotion-npm`: instalación reproducible y descarga del modelo oficial completadas.
-- `npm run build`: recursos de visión presentes, TypeScript y compilación de producción correctos.
-- `npm test`: 13 pruebas aprobadas de gestos, proyección, figuras y estabilidad del seguimiento.
-- Chromium con WebGL software: cuatro modos, ratón, guía, exportación PNG, controles inmersivos y vista móvil sin desbordamiento; sin excepciones de JavaScript.
-- MediaPipe ejecutado realmente en Chromium sobre una cámara de prueba alimentada con la imagen oficial `https://storage.googleapis.com/mediapipe-assets/right_hands.jpg`: **dos manos detectadas**, sin sustituir ni simular los resultados del detector.
-- Cambio entre los cuatro modos con seguimiento activo, desactivación/reactivación del detector y comprobación de que los tracks de cámara terminan correctamente.
+**No hay segmentación ni oclusión física de manos.** La figura conserva su superficie, orden de profundidad y volumen; se compone delante del video. No puede quedar correctamente detrás de los dedos según su distancia real. El material parcialmente transparente ayuda a ver las manos, pero no resuelve esa limitación. No se presenta una máscara aproximada como profundidad medida.
 
-El bloqueo de descarga anterior quedó resuelto con la configuración publicada. La cámara usada en la prueba automatizada es virtual y contiene una imagen estática: **no sustituye la validación de gestos dinámicos con una webcam física ni mediciones de rendimiento en gráficos integrados**. La checklist manual anterior sigue siendo aplicable.
+Calidades: 1000/5000/15000 partículas máximas, moduladas por intensidad. Cuatro segundos por debajo de 27 FPS reducen calidad y pixel ratio; el perfil bajo reduce anillos. No se garantizan FPS en hardware integrado. Se liberan stream, worker, RAF, observers, geometrías y materiales al desmontar. Los errores recuperables se muestran en pantalla.
 
-`npm run build` comprueba primero que el modelo y WASM estén presentes; falla expresamente mientras falten. `npm run build:ui` permite comprobar solo el código y no constituye una distribución completa. `npm run setup:assets` reintenta la descarga oficial, valida la estructura del paquete y guarda el modelo mediante un reemplazo atómico. Los recursos se sirven localmente al ejecutar la aplicación.
+## Pruebas
 
-No se implementa grabación de video. La exportación PNG incluye los gráficos, sin la cámara. Vite avisa del tamaño del paquete principal de Three.js y MediaPipe; es un aviso de optimización, no un error de compilación.
+```sh
+npm test
+npm run typecheck
+npm run build
+# Con npm run dev activo y Chromium instalado:
+CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
+CHROMIUM_PATH=/usr/bin/chromium npm run test:browser:contact
+```
 
-## Web pública con GitHub Pages
+También puedes instalar Chromium con `npx playwright install chromium` y omitir `CHROMIUM_PATH`. `TEST_URL` permite usar otro puerto del servidor Vite.
 
-El workflow `.github/workflows/pages.yml` instala, prueba, compila y despliega `dist/` cuando se actualiza `main`. Incluye el modelo y WASM, por lo que el navegador no necesita descargarlos de terceros.
+Las pruebas unitarias cubren manos libres, pellizco fuera, entrada ya pellizcada, agarre válido, desplazamiento relativo, conservación al soltar, zona muerta, arcball normalizado, escala relativa y sus límites, distancia inicial degenerada, segundo agarre inválido, cambios de número de manos, transformación combinada, pérdida y recuperación, cambios de contexto, identidad, filtros y proyección. El contacto geométrico verifica que el agujero de un toroide no selecciona y que hover no equivale a contacto.
 
-Activación inicial por el propietario del repositorio:
+Las pruebas Chromium usan el motor real y landmarks sintéticos para agarre/arrastre/rotación; verifican también 1800 segmentos en una llamada de dibujo, borrado y PNG. No son pruebas de gestos humanos con webcam.
 
-1. Abre **Settings → Pages → Build and deployment → Source** y selecciona **GitHub Actions**.
-2. En **Actions → Deploy HoloMotion to GitHub Pages**, ejecuta **Run workflow** sobre `main` (o vuelve a ejecutar el despliegue si falló antes de activar Pages).
-3. Al terminar correctamente, la dirección prevista es `https://yudmernp-cmd.github.io/HOLOG3D/`. El enlace publicado también aparece en el entorno `github-pages` del workflow.
+Verificación del 17 de noviembre de 2026: 27 pruebas unitarias aprobadas, compilación completa con TypeScript y assets correcta; pruebas Chromium de contacto, arrastre, rotación, conservación al soltar, dibujo y PNG aprobadas. MediaPipe detectó realmente dos manos sobre una cámara virtual alimentada con una imagen oficial estática; se verificaron los cuatro modos, reinicio del detector y cierre de tracks sin excepciones. No se probaron gestos dinámicos con webcam física ni rendimiento en la laptop del usuario. Vite conserva un aviso de tamaño del paquete principal, sin errores de compilación.
 
-La cámara necesita HTTPS y permiso del navegador. Subir el workflow no confirma que Pages esté activado ni que el despliegue haya terminado.
+### Checklist con cámara física pendiente
 
-### Corrección de fluidez
+1. Mueve ambas manos sin pellizcar: el holograma debe permanecer inmóvil. Pellizca fuera: tampoco debe moverse.
+2. Lleva el índice sobre la superficie, pellizca y arrastra unos centímetros hacia cada lado. No debe saltar al seleccionar; al abrir los dedos debe quedarse allí.
+3. Elige Rotar, agarra y arrastra horizontal/vertical/diagonalmente. Comprueba orientación continua y que no traslada. Suelta y verifica que conserva el giro.
+4. En Trasladar, agarra dos puntos separados. Separa y acerca ambas manos: aumenta y disminuye progresivamente sin desplazar el centro. Suelta primero una mano, luego la otra: sin saltos.
+5. En Combinar, desplaza el punto medio y cambia la dirección entre ambas manos; verifica que combina traslación, tamaño y giro.
+6. Mantén la mano quieta con un temblor leve. Ocúltala brevemente y vuelve a mostrarla en otra posición: la figura debe congelarse y recuperar sin salto. Tras una pérdida prolongada, abre los dedos antes de volver a agarrar.
+7. Comprueba alineación de los puntos de diagnóstico con ambas orientaciones de espejo y ventanas vertical/horizontal. El video debe mostrar tus manos reales.
+8. Prueba permiso denegado, cámara ocupada, desconexión, reinicio del detector y liberación del indicador de cámara al salir.
+9. Revisa los cuatro modos, dibujo, exportación, pantalla completa y perfil Bajo. Mide FPS en tu laptop durante varios minutos; no hay medición de ese hardware en este entorno.
 
-El seguimiento ya no bloquea el hilo de la interfaz: `public/hand-worker.js` ejecuta MediaPipe con GPU cuando está disponible y CPU como alternativa. El bitmap se transfiere al worker, se cierra tras inferir y nunca se acumulan solicitudes. El seguimiento se pausa en pestañas ocultas. Terminar la cámara también termina el worker.
+## Publicación
 
-El renderizador solicita gráficos de alto rendimiento, omite actualizaciones de partículas ocultas y reutiliza los segmentos de dibujo mediante instancias. La captura PNG renderiza solo al exportar, sin conservar el framebuffer en cada fotograma. No se garantiza una frecuencia concreta: depende del navegador, aceleración gráfica, energía y resolución.
-
-Verificación de la corrección: comparación de ocho segundos en Chromium con cámara virtual de dos manos, misma ventana (1280×900) y gráficos SwiftShader. Antes: 11 FPS, p95 entre fotogramas 117 ms, 87 tareas largas y 7844 ms acumulados en ellas. Después: 32 FPS, p95 50 ms, una tarea larga de 50 ms. No son resultados de una RTX 3050 ni garantías para otros equipos.
-
-Regresión de dibujo reproducible: con `npm run dev` activo, ejecuta `npx playwright install chromium` y `npm run test:browser`. Opcionalmente usa `CHROMIUM_PATH=/usr/bin/chromium` para un navegador instalado y `TEST_URL` para otro servidor de desarrollo. Comprueba 1800 segmentos con una llamada de dibujo, borrado y descarga PNG. La prueba del detector también volvió a detectar dos manos y verificó reinicio y cierre de tracks sin excepciones.
-
-## Base recuperada: fbe8eba · V 1.0-P
-
-Esta versión recupera la interacción del commit `fbe8eba` solicitado: movimiento directo con la mano, apertura para expandir, puño para concentrar, escala por separación de manos y dibujo por pellizco. Conserva el worker de MediaPipe y el dibujo por instancias. No incluye los controles por aros ni la calibración obligatoria añadidos después.
-
-Los únicos ajustes funcionales respecto a esa base están en el seguimiento:
-
-- Filtro One Euro sobre los 21 landmarks: estabiliza los movimientos pequeños y responde más rápido cuando el movimiento es intencional. También estabiliza el índice usado para dibujar.
-- Histéresis en la extensión de los dedos y confirmación breve de los cambios de gesto, para que una sola observación dudosa no active un puño o un pellizco. Separar claramente los dedos termina el pellizco inmediatamente.
-- Reinicio de filtros al perder el seguimiento o cambiar la relación de aspecto; ángulo de muñeca continuo al cruzar ±180°.
-
-Las pruebas con trayectorias sintéticas comprueban una reducción de más de la mitad del ruido alternante usado en la prueba, respuesta al movimiento en dos muestras y rechazo de gestos falsos de un fotograma. Estos resultados no garantizan precisión física ni sustituyen una comprobación con webcam en distintas condiciones de luz.
+El workflow `.github/workflows/pages.yml` prueba, compila y despliega `dist/` al actualizar `main`. Incluye modelo y WASM. En GitHub, Settings → Pages → Source debe usar GitHub Actions. Dirección prevista: https://yudmernp-cmd.github.io/HOLOG3D/ . Un push no confirma por sí solo que el despliegue haya terminado; comprueba el workflow verde.
